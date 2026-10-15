@@ -108,6 +108,8 @@ $requirements = file_exists($requirementsFile) ? (include $module->basePath . '/
         <?= $form->field($model, 'apiUsername') ?>
         <?php // Same masking as the client secret above (see ConfigController::actionIndex()). ?>
         <?= $form->field($model, 'apiPassword')->textInput(['type' => 'password', 'autocomplete' => 'new-password']) ?>
+        <?= $form->field($model, 'apiReadOnly')->checkbox() ?>
+        <?= $form->field($model, 'syncUsers')->checkbox(['disabled' => !$module->provideUserSource]) ?>
         <?= $form->field($model, 'removeKeycloakSessionsAfterLogout')->checkbox() ?>
         <?= $form->field($model, 'updateHumhubUsernameFromBrokerUsername')->checkbox() ?>
         <?= $form->field($model, 'updatedBrokerUsernameFromHumhubUsername')->checkbox() ?>
@@ -121,6 +123,37 @@ $requirements = file_exists($requirementsFile) ? (include $module->basePath . '/
         <?= Html::saveButton() ?>
 
         <?php ActiveForm::end() ?>
+
+        <?php
+        // Settings requiring write access to the Keycloak API are disabled while the API is read-only
+        $this->registerJs('
+            (function () {
+                var $readOnly = $(' . json_encode('#' . Html::getInputId($model, 'apiReadOnly')) . ');
+                var $writeInputs = $(' . json_encode(implode(',', array_map(
+                    static fn($attribute) => '#' . Html::getInputId($model, $attribute),
+                    ConfigureForm::API_WRITE_ATTRIBUTES,
+                ))) . ');
+                var $groupsSyncMode = $(' . json_encode('#' . Html::getInputId($model, 'groupsSyncMode')) . ');
+                var readOnlyGroupsSyncModes = ' . json_encode(ConfigureForm::API_READ_ONLY_GROUP_SYNC_MODES) . ';
+
+                function apply() {
+                    var readOnly = $readOnly.is(":checked");
+                    if (readOnly) {
+                        $writeInputs.prop("checked", false);
+                    }
+                    $writeInputs.prop("disabled", readOnly);
+                    $groupsSyncMode.find("option").each(function () {
+                        $(this).prop("disabled", readOnly && this.value in readOnlyGroupsSyncModes);
+                    });
+                    if (readOnly && $groupsSyncMode.val() in readOnlyGroupsSyncModes) {
+                        $groupsSyncMode.val(readOnlyGroupsSyncModes[$groupsSyncMode.val()]);
+                    }
+                }
+
+                $readOnly.on("change", apply);
+                apply();
+            })();
+        ') ?>
 
     </div>
 </div>

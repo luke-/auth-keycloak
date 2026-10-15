@@ -266,6 +266,36 @@ class Keycloak extends OpenIdConnect
     }
 
     /**
+     * Returns the normalized user attributes from a Keycloak API user representation,
+     * the same way as the ones received on sign in
+     *
+     * @param array $keycloakUser user representation returned by the Keycloak admin API
+     * @return array
+     * @throws InvalidConfigException
+     */
+    public function normalizeApiUserAttributes(array $keycloakUser): array
+    {
+        $claims = [
+            'sub' => $keycloakUser['id'] ?? null,
+            'preferred_username' => $keycloakUser['username'] ?? null,
+            'email' => $keycloakUser['email'] ?? null,
+            'email_verified' => $keycloakUser['emailVerified'] ?? false,
+            'given_name' => $keycloakUser['firstName'] ?? null,
+            'family_name' => $keycloakUser['lastName'] ?? null,
+        ];
+
+        // A custom username mapper can only be resolved from a user attribute having the same name
+        $usernameMapper = (string)$this->getNormalizeUserAttributeMap()['username'];
+        if (!array_key_exists($usernameMapper, $claims)) {
+            $claims[$usernameMapper] = $keycloakUser['attributes'][$usernameMapper][0] ?? null;
+        }
+
+        $attributes = $this->normalizeUserAttributes(array_filter($claims, static fn($value) => $value !== null));
+
+        return array_filter($attributes, static fn($value) => $value !== null && $value !== '');
+    }
+
+    /**
      * @inheridoc
      */
     protected function initUserAttributes()
@@ -332,7 +362,7 @@ class Keycloak extends OpenIdConnect
         ) {
             $attributes['username'] = BaseInflector::id2camel(
                 BaseInflector::slug(
-                    $attributes['firstname'] . ' ' . $attributes['lastname'],
+                    ($attributes['firstname'] ?? '') . ' ' . ($attributes['lastname'] ?? ''),
                 ),
             );
         }

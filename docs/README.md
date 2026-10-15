@@ -9,6 +9,8 @@ A new button "Keycloak" (which can be renamed) will appear on the login page.
 - OpenID Connect
 - Keycloak Back-channel logout (1)
 - Possibility to add a page in account settings allowing users to change their Keycloak password
+- Users synchronization from Keycloak (hourly and with the console command `php yii auth-keycloak/sync-users`): HumHub accounts are created, updated, and deactivated when disabled or removed on Keycloak
+- Read-only API user support (only the `view-users`, `query-groups` and `view-realm` roles of the `realm-management` client are required)
 - Users' groups and email synchronization between Keycloak and HumHub in both directions (2):
     - HumHub to Keycloak sync is done in real time
     - Keycloak to HumHub sync is done once a day

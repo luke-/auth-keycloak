@@ -458,6 +458,41 @@ class KeycloakApi extends Component
     }
 
     /**
+     * Returns all users of the realm (Keycloak user representations)
+     * @return array|null null if an error occurred
+     */
+    public function getAllUsers(): ?array
+    {
+        if (!$this->isConnected()) {
+            return null;
+        }
+        $first = 0;
+        $users = [];
+        while (!isset($currentUsers) || count($currentUsers) === self::MAX_USERS_RESULT) {
+            try {
+                $currentUsers = $this->api->getUsers([
+                    'first' => $first,
+                    'max' => self::MAX_USERS_RESULT,
+                ]);
+            } catch (CommandClientException|CommandException $e) {
+                Yii::error('Error retrieving users from Keycloak: ' . $e->getMessage(), 'auth-keycloak');
+                return null;
+            }
+            // Return null (not a partial list) so that callers do not consider missing users as removed from Keycloak
+            if (
+                $this->hasError($currentUsers, 'Error retrieving users from Keycloak')
+                || !is_array($currentUsers)
+            ) {
+                return null;
+            }
+            array_push($users, ...array_values($currentUsers));
+            $first += self::MAX_USERS_RESULT;
+        }
+
+        return $users;
+    }
+
+    /**
      * @param $groupId
      * @return array|null
      */

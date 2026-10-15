@@ -21,6 +21,7 @@ use humhub\modules\authKeycloak\jobs\GroupsFullSync;
 use humhub\modules\authKeycloak\jobs\GroupsUserSync;
 use humhub\modules\authKeycloak\jobs\UpdateUserEmail;
 use humhub\modules\authKeycloak\jobs\UpdateUserUsername;
+use humhub\modules\authKeycloak\jobs\UsersFullSync;
 use humhub\modules\authKeycloak\models\ConfigureForm;
 use humhub\modules\authKeycloak\source\KeycloakUserSource;
 use humhub\modules\ui\menu\MenuLink;
@@ -416,6 +417,37 @@ class Events
         }
 
         Yii::$app->queue->push(new GroupsFullSync());
+
+        $controller->stdout('done.' . PHP_EOL, Console::FG_GREEN);
+    }
+
+
+    /**
+     * @param $event
+     * @return void
+     */
+    public static function onCronHourlyRun($event)
+    {
+        /** @var Module $module */
+        $module = Yii::$app->getModule('auth-keycloak');
+        if (!$module?->isEnabled) {
+            return;
+        }
+
+        $config = new ConfigureForm();
+        if (
+            !$config->enabled
+            || !$config->syncUsers
+            || !$config->hasApiParams()
+        ) {
+            return;
+        }
+
+        /** @var CronController $controller */
+        $controller = $event->sender;
+        $controller->stdout("Auth Keycloak module: adding to jobs Keycloak users synchronization with the API...");
+
+        Yii::$app->queue->push(new UsersFullSync());
 
         $controller->stdout('done.' . PHP_EOL, Console::FG_GREEN);
     }

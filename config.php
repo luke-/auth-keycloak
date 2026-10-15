@@ -25,6 +25,9 @@ return [
     'id' => 'auth-keycloak',
     'class' => humhub\modules\authKeycloak\Module::class,
     'namespace' => 'humhub\modules\authKeycloak',
+    'consoleControllerMap' => [
+        'auth-keycloak' => 'humhub\modules\authKeycloak\commands\KeycloakController',
+    ],
     'events' => [
         [
             'class' => AuthController::class,
@@ -100,6 +103,11 @@ return [
             'class' => CronController::class,
             'event' => CronController::EVENT_ON_DAILY_RUN,
             'callback' => [Events::class, 'onCronDailyRun'],
+        ],
+        [
+            'class' => CronController::class,
+            'event' => CronController::EVENT_ON_HOURLY_RUN,
+            'callback' => [Events::class, 'onCronHourlyRun'],
         ],
         [
             'class' => Auth::class,

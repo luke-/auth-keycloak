@@ -1,6 +1,13 @@
 Changelog
 =========
 
+1.7.0 (Unreleased)
+------------------
+- Enh: Add an option to synchronize the users with Keycloak (`syncUsers`): every hour, HumHub accounts are created for new Keycloak users (without admin approval), updated (first name, last name and, depending on the settings, username and email), and deactivated if disabled or removed on Keycloak; also available as the console command `php yii auth-keycloak/sync-users` (and `auth-keycloak/list-users`)
+- Enh: Add an option for a read-only Keycloak API user (`apiReadOnly`): settings requiring write access to Keycloak are disabled
+- Enh: When creating a user from Keycloak, an already taken username gets a numeric suffix instead of failing
+- Fix: The "change password" page was accessible by URL when the option was disabled
+
 1.6.4 (October 5, 2026)
 ------------------
 - Enh: Add an option to deactivate the user's account on Keycloak when the user is deleted on HumHub

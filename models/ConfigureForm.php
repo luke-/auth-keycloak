@@ -11,6 +11,7 @@ namespace humhub\modules\authKeycloak\models;
 
 use humhub\modules\authKeycloak\authclient\Keycloak;
 use humhub\modules\authKeycloak\jobs\GroupsFullSync;
+use humhub\modules\authKeycloak\jobs\UsersFullSync;
 use humhub\modules\authKeycloak\Module;
 use Yii;
 use yii\base\Model;
@@ -41,6 +42,29 @@ class ConfigureForm extends Model
      * read or copy it via the password field's reveal icon.
      */
     public const SECRET_PLACEHOLDER = '••••••••';
+
+    /**
+     * Settings requiring write access to the Keycloak API, disabled if {@see $apiReadOnly} is enabled
+     */
+    public const API_WRITE_ATTRIBUTES = [
+        'removeKeycloakSessionsAfterLogout',
+        'updatedBrokerUsernameFromHumhubUsername',
+        'updatedBrokerEmailFromHumhubEmail',
+        'addChangePasswordFormToAccount',
+        'disableKeycloakUserOnDelete',
+    ];
+
+    /**
+     * Groups sync modes writing to Keycloak => read-only mode replacing them if {@see $apiReadOnly} is enabled
+     */
+    public const API_READ_ONLY_GROUP_SYNC_MODES = [
+        self::GROUP_SYNC_MODE_HH_TO_KC => self::GROUP_SYNC_MODE_NONE,
+        self::GROUP_SYNC_MODE_HH_TO_KC_NO_DEL => self::GROUP_SYNC_MODE_NONE,
+        self::GROUP_SYNC_MODE_FULL => self::GROUP_SYNC_MODE_KC_TO_HH,
+        self::GROUP_SYNC_MODE_FULL_NO_KC_DEL => self::GROUP_SYNC_MODE_KC_TO_HH,
+        self::GROUP_SYNC_MODE_FULL_NO_HH_DEL => self::GROUP_SYNC_MODE_KC_TO_HH_NO_DEL,
+        self::GROUP_SYNC_MODE_FULL_NO_DEL => self::GROUP_SYNC_MODE_KC_TO_HH_NO_DEL,
+    ];
 
     /**
      * @var bool
@@ -127,6 +151,14 @@ class ConfigureForm extends Model
      */
     public $apiPassword = '';
     /**
+     * @var bool The API admin user has only read permissions on Keycloak
+     */
+    public $apiReadOnly = false;
+    /**
+     * @var bool Create, update and deactivate HumHub users from the Keycloak users (hourly)
+     */
+    public $syncUsers = false;
+    /**
      * @var string
      */
     public $groupsSyncMode = self::GROUP_SYNC_MODE_NONE;
@@ -140,7 +172,7 @@ class ConfigureForm extends Model
         return [
             [['clientId', 'clientSecret', 'realm', 'baseUrl', 'usernameMapper'], 'required'],
             [['clientId', 'clientSecret', 'baseUrl', 'usernameMapper', 'title', 'realm', 'apiUsername', 'apiPassword'], 'string'],
-            [['enabled', 'hideRegistrationUsernameField', 'hideAdminUserEditPassword', 'trustOnlyVerifiedEmail', 'removeKeycloakSessionsAfterLogout', 'updateHumhubUsernameFromBrokerUsername', 'updatedBrokerUsernameFromHumhubUsername', 'updateHumhubEmailFromBrokerEmail', 'updatedBrokerEmailFromHumhubEmail', 'addChangePasswordFormToAccount', 'disableKeycloakUserOnDelete'], 'boolean'],
+            [['enabled', 'hideRegistrationUsernameField', 'hideAdminUserEditPassword', 'trustOnlyVerifiedEmail', 'removeKeycloakSessionsAfterLogout', 'updateHumhubUsernameFromBrokerUsername', 'updatedBrokerUsernameFromHumhubUsername', 'updateHumhubEmailFromBrokerEmail', 'updatedBrokerEmailFromHumhubEmail', 'addChangePasswordFormToAccount', 'disableKeycloakUserOnDelete', 'apiReadOnly', 'syncUsers'], 'boolean'],
             [['groupsSyncMode'], 'safe'],
         ];
     }
@@ -208,6 +240,9 @@ class ConfigureForm extends Model
         $this->apiUsername = $settings->get('apiUsername', $this->apiUsername);
         $this->apiPassword = $settings->get('apiPassword', $this->apiPassword);
         $this->groupsSyncMode = $settings->get('groupsSyncMode', $this->groupsSyncMode);
+        $this->apiReadOnly = (bool)$settings->get('apiReadOnly', $this->apiReadOnly);
+        $this->syncUsers = (bool)$settings->get('syncUsers', $this->syncUsers);
+        $this->applyApiReadOnly();
 
         $this->redirectUri = Url::to(['/user/auth/external', 'authclient' => Keycloak::DEFAULT_NAME], true);
         $this->backChannelLogoutUrl = Url::to(['/auth-keycloak/back-channel/logout'], true);
@@ -239,6 +274,8 @@ class ConfigureForm extends Model
             'apiUsername' => Yii::t('AuthKeycloakModule.base', 'Keycloak API admin username'),
             'apiPassword' => Yii::t('AuthKeycloakModule.base', 'Keycloak API admin password'),
             'groupsSyncMode' => Yii::t('AuthKeycloakModule.base', 'Synchronize groups and their members'),
+            'apiReadOnly' => Yii::t('AuthKeycloakModule.base', 'The API user has only read permissions'),
+            'syncUsers' => Yii::t('AuthKeycloakModule.base', 'Fetch/Update users automatically'),
         ];
     }
 
@@ -268,6 +305,13 @@ class ConfigureForm extends Model
             'addChangePasswordFormToAccount' => Yii::t('AuthKeycloakModule.base', 'Warning: this page does not ask for the current password (users signing in with Keycloak may not know it). Anyone with access to an open session of the user can therefore change the user\'s Keycloak password.'),
             'disableKeycloakUserOnDelete' => Yii::t('AuthKeycloakModule.base', 'The Keycloak account is disabled (not deleted) and its Keycloak sessions are removed. It can be re-enabled on Keycloak. The Keycloak API admin user is never disabled.'),
             'groupsSyncMode' => Yii::t('AuthKeycloakModule.base', 'HumHub to Keycloak sync is done in real time. Keycloak to HumHub sync is done once a day. Keycloak subgroups are not synced.'),
+            'apiReadOnly' => Yii::t('AuthKeycloakModule.base', 'Instead of all roles, assign only the {roles} roles of the {realmManagementClientRole} client to the API user. Settings writing to Keycloak are then disabled.', [
+                'roles' => '“view-users”, “query-groups”, “view-realm”',
+                'realmManagementClientRole' => '“realm-management”',
+            ]),
+            'syncUsers' => Yii::t('AuthKeycloakModule.base', 'Every hour, HumHub accounts are created for new Keycloak users, updated (first name, last name and, depending on the settings above, username and email), and deactivated if the user is disabled or removed on Keycloak. Can also be run with the command {command}.', [
+                'command' => '`php yii auth-keycloak/sync-users`',
+            ]),
         ];
     }
 
@@ -312,7 +356,7 @@ class ConfigureForm extends Model
         $module->settings->set('trustOnlyVerifiedEmail', $this->trustOnlyVerifiedEmail);
         $module->settings->set('apiUsername', $this->apiUsername);
         $module->settings->set('apiPassword', $this->apiPassword);
-        $module->settings->set('groupsSyncMode', $this->groupsSyncMode);
+        $module->settings->set('apiReadOnly', $this->apiReadOnly);
 
         // Following settings can be enabled only if API settings are entered
         if (!$this->hasApiParams()) {
@@ -321,7 +365,11 @@ class ConfigureForm extends Model
             $this->updatedBrokerEmailFromHumhubEmail = false;
             $this->addChangePasswordFormToAccount = false;
             $this->disableKeycloakUserOnDelete = false;
+            $this->syncUsers = false;
         }
+        $this->applyApiReadOnly();
+        $module->settings->set('groupsSyncMode', $this->groupsSyncMode);
+        $module->settings->set('syncUsers', $this->syncUsers);
         $module->settings->set('removeKeycloakSessionsAfterLogout', $this->removeKeycloakSessionsAfterLogout);
         $module->settings->set('updateHumhubUsernameFromBrokerUsername', $this->updateHumhubUsernameFromBrokerUsername);
         $module->settings->set('updatedBrokerUsernameFromHumhubUsername', $this->updatedBrokerUsernameFromHumhubUsername);
@@ -339,7 +387,29 @@ class ConfigureForm extends Model
             Yii::$app->queue->push(new GroupsFullSync(['firstSync' => true]));
         }
 
+        // Add users sync to jobs
+        if (
+            $this->enabled
+            && $this->syncUsers
+        ) {
+            Yii::$app->queue->push(new UsersFullSync());
+        }
+
         return true;
+    }
+
+    /**
+     * Disables the settings requiring write access to the Keycloak API if the API is read-only
+     */
+    protected function applyApiReadOnly(): void
+    {
+        if (!$this->apiReadOnly) {
+            return;
+        }
+        foreach (self::API_WRITE_ATTRIBUTES as $attribute) {
+            $this->$attribute = false;
+        }
+        $this->groupsSyncMode = self::API_READ_ONLY_GROUP_SYNC_MODES[$this->groupsSyncMode] ?? $this->groupsSyncMode;
     }
 
     /**
