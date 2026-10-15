@@ -5,6 +5,7 @@ Changelog
 ------------------
 - Enh: Add an option to synchronize the users with Keycloak (`syncUsers`): every hour, HumHub accounts are created for new Keycloak users (without admin approval), updated (first name, last name and, depending on the settings, username and email), and deactivated if disabled or removed on Keycloak; also available as the console command `php yii auth-keycloak/sync-users` (and `auth-keycloak/list-users`)
 - Enh: Add an option for a read-only Keycloak API user (`apiReadOnly`): settings requiring write access to Keycloak are disabled
+- Enh: Add an option to access the Keycloak API with the service account of the client (`apiAuthMethod`, "client_credentials" grant) instead of an admin user, so that "Direct access grants" can stay disabled on the client
 - Enh: When creating a user from Keycloak, an already taken username gets a numeric suffix instead of failing
 - Fix: The "change password" page was accessible by URL when the option was disabled
 

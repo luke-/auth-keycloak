@@ -85,8 +85,7 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
         $config = new ConfigureForm();
         if (
             !$config->enabled
-            || !$config->apiUsername
-            || !$config->apiPassword
+            || !$config->hasApiParams()
             || $config->groupsSyncMode === ConfigureForm::GROUP_SYNC_MODE_NONE
         ) {
             return;

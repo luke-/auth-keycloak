@@ -44,6 +44,15 @@ class ConfigureForm extends Model
     public const SECRET_PLACEHOLDER = '••••••••';
 
     /**
+     * Keycloak API authentication with an admin user (username and password, "password" grant)
+     */
+    public const API_AUTH_METHOD_USER = 'user';
+    /**
+     * Keycloak API authentication with the service account of the client (client ID and secret, "client_credentials" grant)
+     */
+    public const API_AUTH_METHOD_SERVICE_ACCOUNT = 'serviceAccount';
+
+    /**
      * Settings requiring write access to the Keycloak API, disabled if {@see $apiReadOnly} is enabled
      */
     public const API_WRITE_ATTRIBUTES = [
@@ -145,6 +154,10 @@ class ConfigureForm extends Model
     /**
      * @var string
      */
+    public $apiAuthMethod = self::API_AUTH_METHOD_USER;
+    /**
+     * @var string
+     */
     public $apiUsername = '';
     /**
      * @var string
@@ -172,6 +185,7 @@ class ConfigureForm extends Model
         return [
             [['clientId', 'clientSecret', 'realm', 'baseUrl', 'usernameMapper'], 'required'],
             [['clientId', 'clientSecret', 'baseUrl', 'usernameMapper', 'title', 'realm', 'apiUsername', 'apiPassword'], 'string'],
+            [['apiAuthMethod'], 'in', 'range' => [self::API_AUTH_METHOD_USER, self::API_AUTH_METHOD_SERVICE_ACCOUNT]],
             [['enabled', 'hideRegistrationUsernameField', 'hideAdminUserEditPassword', 'trustOnlyVerifiedEmail', 'removeKeycloakSessionsAfterLogout', 'updateHumhubUsernameFromBrokerUsername', 'updatedBrokerUsernameFromHumhubUsername', 'updateHumhubEmailFromBrokerEmail', 'updatedBrokerEmailFromHumhubEmail', 'addChangePasswordFormToAccount', 'disableKeycloakUserOnDelete', 'apiReadOnly', 'syncUsers'], 'boolean'],
             [['groupsSyncMode'], 'safe'],
         ];
@@ -237,6 +251,7 @@ class ConfigureForm extends Model
         $this->updatedBrokerEmailFromHumhubEmail = (bool)$settings->get('updatedBrokerEmailFromHumhubEmail', $this->updatedBrokerEmailFromHumhubEmail);
         $this->addChangePasswordFormToAccount = (bool)$settings->get('addChangePasswordFormToAccount', $this->addChangePasswordFormToAccount);
         $this->disableKeycloakUserOnDelete = (bool)$settings->get('disableKeycloakUserOnDelete', $this->disableKeycloakUserOnDelete);
+        $this->apiAuthMethod = $settings->get('apiAuthMethod', $this->apiAuthMethod);
         $this->apiUsername = $settings->get('apiUsername', $this->apiUsername);
         $this->apiPassword = $settings->get('apiPassword', $this->apiPassword);
         $this->groupsSyncMode = $settings->get('groupsSyncMode', $this->groupsSyncMode);
@@ -271,10 +286,11 @@ class ConfigureForm extends Model
             'updatedBrokerEmailFromHumhubEmail' => Yii::t('AuthKeycloakModule.base', 'Update user\'s email on Keycloak when changed on HumHub'),
             'addChangePasswordFormToAccount' => Yii::t('AuthKeycloakModule.base', 'Add a page in account settings allowing users to change their Keycloak password'),
             'disableKeycloakUserOnDelete' => Yii::t('AuthKeycloakModule.base', 'Deactivate user\'s account on Keycloak when deleted on HumHub'),
+            'apiAuthMethod' => Yii::t('AuthKeycloakModule.base', 'Keycloak API authentication'),
             'apiUsername' => Yii::t('AuthKeycloakModule.base', 'Keycloak API admin username'),
             'apiPassword' => Yii::t('AuthKeycloakModule.base', 'Keycloak API admin password'),
             'groupsSyncMode' => Yii::t('AuthKeycloakModule.base', 'Synchronize groups and their members'),
-            'apiReadOnly' => Yii::t('AuthKeycloakModule.base', 'The API user has only read permissions'),
+            'apiReadOnly' => Yii::t('AuthKeycloakModule.base', 'The API user or service account has only read permissions'),
             'syncUsers' => Yii::t('AuthKeycloakModule.base', 'Fetch/Update users automatically'),
         ];
     }
@@ -294,6 +310,12 @@ class ConfigureForm extends Model
             'hideRegistrationUsernameField' => Yii::t('AuthKeycloakModule.base', 'If the username sent by Keycloak is the user\'s email, it is replaced by a username auto-generated from the first and last name (CamelCase formatted)'),
             'hideAdminUserEditPassword' => Yii::t('AuthKeycloakModule.base', 'For administrators allowed to manage users'),
             'trustOnlyVerifiedEmail' => Yii::t('AuthKeycloakModule.base', 'If enabled, an email that is not verified on Keycloak is ignored when signing in: it is not used to sign in to an existing HumHub account with the same email, to create a HumHub account (if an email is required, signing in fails until the email is verified on Keycloak), or to update the HumHub email. Users already connected with Keycloak can still sign in. Keycloak must send the {emailVerifiedClaim} claim (it does by default). If disabled, the email sent by Keycloak is always trusted: if Keycloak allows setting an email without verifying it (e.g. self-registration without email verification), anyone can sign in to a HumHub account by using its email on Keycloak.', ['emailVerifiedClaim' => '`email_verified`']),
+            'apiAuthMethod' => Yii::t('AuthKeycloakModule.base', 'With the service account, the client ID and secret above are used to access the API: in Keycloak, enable {serviceAccountsRoles} in the client settings and assign the roles of the {realmManagementClientRole} client to the service account (in the client\'s {serviceAccountsRolesTab} tab). No admin user is needed and {directAccessGrants} can stay disabled.', [
+                'serviceAccountsRoles' => '“Service accounts roles”',
+                'realmManagementClientRole' => '“realm-management”',
+                'serviceAccountsRolesTab' => '“Service accounts roles”',
+                'directAccessGrants' => '“Direct access grants”',
+            ]),
             'apiUsername' => Yii::t('AuthKeycloakModule.base', 'This admin user must be created in the same realm as the one entered in the {RealmName} field. If your realm is {masterRealmName}, just assign the {adminRoleName} role to this user. Otherwise, you need to add the {realmManagementClientRole} Client Role and assign all Roles. {MoreInformationHere}', [
                 'RealmName' => '“' . Yii::t('AuthKeycloakModule.base', 'Realm name') . '”',
                 'masterRealmName' => '“master”',
@@ -305,13 +327,24 @@ class ConfigureForm extends Model
             'addChangePasswordFormToAccount' => Yii::t('AuthKeycloakModule.base', 'Warning: this page does not ask for the current password (users signing in with Keycloak may not know it). Anyone with access to an open session of the user can therefore change the user\'s Keycloak password.'),
             'disableKeycloakUserOnDelete' => Yii::t('AuthKeycloakModule.base', 'The Keycloak account is disabled (not deleted) and its Keycloak sessions are removed. It can be re-enabled on Keycloak. The Keycloak API admin user is never disabled.'),
             'groupsSyncMode' => Yii::t('AuthKeycloakModule.base', 'HumHub to Keycloak sync is done in real time. Keycloak to HumHub sync is done once a day. Keycloak subgroups are not synced.'),
-            'apiReadOnly' => Yii::t('AuthKeycloakModule.base', 'Instead of all roles, assign only the {roles} roles of the {realmManagementClientRole} client to the API user. Settings writing to Keycloak are then disabled.', [
+            'apiReadOnly' => Yii::t('AuthKeycloakModule.base', 'Instead of all roles, assign only the {roles} roles of the {realmManagementClientRole} client to the API user or service account. Settings writing to Keycloak are then disabled.', [
                 'roles' => '“view-users”, “query-groups”, “view-realm”',
                 'realmManagementClientRole' => '“realm-management”',
             ]),
             'syncUsers' => Yii::t('AuthKeycloakModule.base', 'Every hour, HumHub accounts are created for new Keycloak users, updated (first name, last name and, depending on the settings above, username and email), and deactivated if the user is disabled or removed on Keycloak. Can also be run with the command {command}.', [
                 'command' => '`php yii auth-keycloak/sync-users`',
             ]),
+        ];
+    }
+
+    /**
+     * @return array
+     */
+    public function apiAuthMethodItems(): array
+    {
+        return [
+            self::API_AUTH_METHOD_USER => Yii::t('AuthKeycloakModule.base', 'Admin user (username and password)'),
+            self::API_AUTH_METHOD_SERVICE_ACCOUNT => Yii::t('AuthKeycloakModule.base', 'Service account of the client (client ID and secret)'),
         ];
     }
 
@@ -354,6 +387,7 @@ class ConfigureForm extends Model
         $module->settings->set('hideRegistrationUsernameField', $this->hideRegistrationUsernameField);
         $module->settings->set('hideAdminUserEditPassword', $this->hideAdminUserEditPassword);
         $module->settings->set('trustOnlyVerifiedEmail', $this->trustOnlyVerifiedEmail);
+        $module->settings->set('apiAuthMethod', $this->apiAuthMethod);
         $module->settings->set('apiUsername', $this->apiUsername);
         $module->settings->set('apiPassword', $this->apiPassword);
         $module->settings->set('apiReadOnly', $this->apiReadOnly);
@@ -417,7 +451,21 @@ class ConfigureForm extends Model
      */
     public function hasApiParams()
     {
-        return $this->baseUrl && $this->realm && $this->apiUsername && $this->apiPassword;
+        if (!$this->baseUrl || !$this->realm) {
+            return false;
+        }
+        if ($this->isApiServiceAccount()) {
+            return $this->clientId && $this->clientSecret;
+        }
+        return $this->apiUsername && $this->apiPassword;
+    }
+
+    /**
+     * @return bool if the Keycloak API is accessed with the service account of the client
+     */
+    public function isApiServiceAccount(): bool
+    {
+        return $this->apiAuthMethod === self::API_AUTH_METHOD_SERVICE_ACCOUNT;
     }
 
     /**

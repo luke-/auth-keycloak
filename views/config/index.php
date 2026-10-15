@@ -94,9 +94,9 @@ $requirements = file_exists($requirementsFile) ? (include $module->basePath . '/
         <?= $form->field($model, 'trustOnlyVerifiedEmail')->checkbox() ?>
         <?= $form->endCollapsibleFields(); ?>
 
-        <?= $form->beginCollapsibleFields(Yii::t('AuthKeycloakModule.base', 'Advanced settings requiring an admin user for the API (optional)')) ?>
+        <?= $form->beginCollapsibleFields(Yii::t('AuthKeycloakModule.base', 'Advanced settings requiring access to the Keycloak API (optional)')) ?>
 
-        <?php if ($model->apiUsername) : ?>
+        <?php if ($model->hasApiParams()) : ?>
             <?= Alert::instance(
                 $apiAuthentificationSuccess
                     ? Yii::t('AuthKeycloakModule.base', 'Authentication to Keycloak API succeeded!')
@@ -105,6 +105,7 @@ $requirements = file_exists($requirementsFile) ? (include $module->basePath . '/
             ) ?>
         <?php endif; ?>
 
+        <?= $form->field($model, 'apiAuthMethod')->dropDownList($model->apiAuthMethodItems()) ?>
         <?= $form->field($model, 'apiUsername') ?>
         <?php // Same masking as the client secret above (see ConfigController::actionIndex()). ?>
         <?= $form->field($model, 'apiPassword')->textInput(['type' => 'password', 'autocomplete' => 'new-password']) ?>
@@ -125,6 +126,24 @@ $requirements = file_exists($requirementsFile) ? (include $module->basePath . '/
         <?php ActiveForm::end() ?>
 
         <?php
+        // The admin user fields are not used with the service account
+        $this->registerJs('
+            (function () {
+                var $authMethod = $(' . json_encode('#' . Html::getInputId($model, 'apiAuthMethod')) . ');
+                var $userFields = $(' . json_encode(implode(',', [
+                    '.field-' . Html::getInputId($model, 'apiUsername'),
+                    '.field-' . Html::getInputId($model, 'apiPassword'),
+                ])) . ');
+
+                function apply() {
+                    $userFields.toggle($authMethod.val() !== ' . json_encode(ConfigureForm::API_AUTH_METHOD_SERVICE_ACCOUNT) . ');
+                }
+
+                $authMethod.on("change", apply);
+                apply();
+            })();
+        ');
+
         // Settings requiring write access to the Keycloak API are disabled while the API is read-only
         $this->registerJs('
             (function () {

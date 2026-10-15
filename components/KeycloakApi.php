@@ -287,6 +287,7 @@ class KeycloakApi extends Component
             'realm' => $config->realm,
             'client_id' => $config->clientId,
             'client_secret' => $config->clientSecret,
+            'grant_type' => $config->isApiServiceAccount() ? 'client_credentials' : 'password',
             'username' => $config->apiUsername,
             'password' => $config->apiPassword,
             'baseUri' => $config->baseUrl . '/',
