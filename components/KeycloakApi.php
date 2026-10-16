@@ -28,6 +28,12 @@ class KeycloakApi extends Component
      * Maximum users in the results
      */
     public const MAX_USERS_RESULT = 100;
+
+    /**
+     * Maximum number of times the users are listed, see {@see getAllUsers()}
+     */
+    public const MAX_USERS_LIST_PASSES = 3;
+
     /**
      * KeycloakClient methods: https://github.com/MohammadWaleed/keycloak-admin-client
      * @var KeycloakClient|null
@@ -727,38 +733,74 @@ class KeycloakApi extends Component
     }
 
     /**
-     * Returns all users of the realm (Keycloak user representations)
+     * Returns all users of the realm (Keycloak user representations).
+     *
+     * With a user federation (e.g. LDAP), Keycloak may return a different, incomplete list on each request
+     * (users being imported while listing). So the list is compared to the number of users of the realm,
+     * and listed again (merging the lists) until it is complete, at most {@see MAX_USERS_LIST_PASSES} times.
+     *
+     * @param bool|null $isComplete set to false if the list is still incomplete after all passes
+     * (or the number of users could not be retrieved)
      * @return array|null null if an error occurred
      */
-    public function getAllUsers(): ?array
+    public function getAllUsers(?bool &$isComplete = null): ?array
+    {
+        $isComplete = false;
+        if (!$this->isConnected()) {
+            return null;
+        }
+
+        $users = [];
+        for ($pass = 1; $pass <= self::MAX_USERS_LIST_PASSES; $pass++) {
+            // Return null (not a partial list) so that callers do not consider missing users as removed from Keycloak
+            $pageUsers = $this->getAllPages(
+                fn($first, $max) => $this->api->getUsers(['first' => $first, 'max' => $max]),
+                'Error retrieving users from Keycloak',
+            );
+            if ($pageUsers === null) {
+                return null;
+            }
+            // Indexed by ID, as a user may be returned in several pages or passes
+            foreach ($pageUsers as $user) {
+                if (!empty($user['id'])) {
+                    $users[$user['id']] ??= $user;
+                }
+            }
+
+            $count = $this->getUserCount();
+            if ($count === null) {
+                break;
+            }
+            if (count($users) >= $count) {
+                $isComplete = true;
+                break;
+            }
+            Yii::warning('Retrieving users from Keycloak: ' . count($users) . ' users listed, but the realm has ' . $count . ' users (pass ' . $pass . ' of ' . self::MAX_USERS_LIST_PASSES . ')', 'auth-keycloak');
+        }
+
+        return array_values($users);
+    }
+
+    /**
+     * @return int|null number of users of the realm, null if an error occurred
+     */
+    public function getUserCount(): ?int
     {
         if (!$this->isConnected()) {
             return null;
         }
-        $first = 0;
-        $users = [];
-        while (!isset($currentUsers) || count($currentUsers) === self::MAX_USERS_RESULT) {
-            try {
-                $currentUsers = $this->api->getUsers([
-                    'first' => $first,
-                    'max' => self::MAX_USERS_RESULT,
-                ]);
-            } catch (CommandClientException|CommandException $e) {
-                Yii::error('Error retrieving users from Keycloak: ' . $e->getMessage(), 'auth-keycloak');
-                return null;
-            }
-            // Return null (not a partial list) so that callers do not consider missing users as removed from Keycloak
-            if (
-                $this->hasError($currentUsers, 'Error retrieving users from Keycloak')
-                || !is_array($currentUsers)
-            ) {
-                return null;
-            }
-            array_push($users, ...array_values($currentUsers));
-            $first += self::MAX_USERS_RESULT;
+        try {
+            $result = $this->api->getUserCount();
+        } catch (CommandClientException|CommandException $e) {
+            Yii::error('Error retrieving the number of users from Keycloak: ' . $e->getMessage(), 'auth-keycloak');
+            return null;
         }
-
-        return $users;
+        if ($this->hasError($result, 'Error retrieving the number of users from Keycloak')) {
+            return null;
+        }
+        // The response body is a number
+        $count = is_array($result) ? ($result['content'] ?? null) : $result;
+        return is_numeric($count) ? (int)$count : null;
     }
 
     /**
@@ -770,28 +812,16 @@ class KeycloakApi extends Component
         if (!$this->isConnected()) {
             return null;
         }
-        $first = 0;
-        $memberIds = [];
-        while (!isset($currentMembers) || count($currentMembers) === self::MAX_USERS_RESULT) {
-            $currentMembers = $this->api->getGroupMembers([
-                'id' => $groupId,
-                'first' => $first,
-                'max' => self::MAX_USERS_RESULT,
-            ]);
-            // Return null (not a partial list) so that callers do not consider missing members as removed from the group
-            if (
-                $this->hasError($currentMembers, 'Error retrieving members of the Keycloak group ID ' . $groupId)
-                || !is_array($currentMembers)
-            ) {
-                return null;
-            }
-            $currentMemberIds = array_map(static fn($member) => $member['id'] ?? null, $currentMembers);
-            $currentMemberIds = array_filter($currentMemberIds);
-            array_push($memberIds, ...$currentMemberIds);
-            $first += self::MAX_USERS_RESULT;
+        // Return null (not a partial list) so that callers do not consider missing members as removed from the group
+        $members = $this->getAllPages(
+            fn($first, $max) => $this->api->getGroupMembers(['id' => $groupId, 'first' => $first, 'max' => $max]),
+            'Error retrieving members of the Keycloak group ID ' . $groupId,
+        );
+        if ($members === null) {
+            return null;
         }
 
-        return $memberIds;
+        return array_values(array_filter(array_map(static fn($member) => $member['id'] ?? null, $members)));
     }
 
     /**

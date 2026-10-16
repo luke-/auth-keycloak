@@ -11,6 +11,7 @@ namespace humhub\modules\authKeycloak\commands;
 
 use humhub\modules\authKeycloak\authclient\Keycloak;
 use humhub\modules\authKeycloak\components\KeycloakApi;
+use humhub\modules\authKeycloak\jobs\GroupsFullSync;
 use humhub\modules\authKeycloak\models\ConfigureForm;
 use humhub\modules\authKeycloak\source\KeycloakUserSource;
 use humhub\modules\user\models\Auth;
@@ -62,7 +63,54 @@ class KeycloakController extends Controller
         foreach ($results as $result => $count) {
             $this->stdout(str_pad(ucfirst($result) . ':', 12) . $count . "\n");
         }
+
+        $this->stdout("\nKeycloak users: " . $source->lastSyncKeycloakUsersCount . "\n");
+        if (!$source->lastSyncIsComplete) {
+            $this->stderr("Warning: the list of Keycloak users may be incomplete (see the log), no HumHub user has been deactivated for not being found on Keycloak.\n", Console::FG_YELLOW);
+        }
+        $counts = $source->countUsersByStatus();
+        $this->stdout('HumHub users of the "' . $source->getId() . '" user source: ' . array_sum($counts)
+            . ' (enabled: ' . $counts[User::STATUS_ENABLED]
+            . ', deactivated: ' . $counts[User::STATUS_DEACTIVATED]
+            . ', awaiting approval: ' . $counts[User::STATUS_NEED_APPROVAL]
+            . ', soft deleted: ' . $counts[User::STATUS_SOFT_DELETED] . ")\n");
         $this->stdout("\nKeycloak users sync completed!\n\n", Console::FG_GREEN);
+
+        return ExitCode::OK;
+    }
+
+    /**
+     * Synchronizes the groups and their members (also done every day if the "Groups sync" setting is enabled)
+     */
+    public function actionSyncGroups()
+    {
+        $this->stdout("*** Keycloak groups sync\n\n");
+
+        if (($error = $this->checkApi()) !== null) {
+            $this->stderr('Error: ' . $error . "\n\n", Console::FG_RED);
+            return ExitCode::UNSPECIFIED_ERROR;
+        }
+
+        $job = new GroupsFullSync();
+        $job->run();
+        if ($job->isCompleted === null) {
+            $this->stderr("Error: the groups sync is disabled.\n\n", Console::FG_RED);
+            return ExitCode::UNSPECIFIED_ERROR;
+        }
+
+        foreach ([
+            'created' => 'Created on HumHub',
+            'linked' => 'Linked to an existing HumHub group',
+            'withoutMembers' => 'Not created (no members with a HumHub account)',
+        ] as $result => $label) {
+            $this->stdout($label . ': ' . count($job->results[$result])
+                . ($job->results[$result] !== [] ? ' (' . implode(', ', $job->results[$result]) . ')' : '') . "\n");
+        }
+        if (!$job->isCompleted) {
+            $this->stderr("\nError: the sync was aborted, see the error log.\n\n", Console::FG_RED);
+            return ExitCode::UNSPECIFIED_ERROR;
+        }
+        $this->stdout("\nKeycloak groups sync completed!\n\n", Console::FG_GREEN);
 
         return ExitCode::OK;
     }

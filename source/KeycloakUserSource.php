@@ -46,6 +46,16 @@ class KeycloakUserSource extends BaseUserSource
     public const SYNC_SKIPPED = 'skipped';
     public const SYNC_FAILED = 'failed';
 
+    /**
+     * @var int|null number of Keycloak users retrieved by the last {@see syncUsers()}
+     */
+    public $lastSyncKeycloakUsersCount;
+
+    /**
+     * @var bool|null whether the last {@see syncUsers()} listed all the Keycloak users (otherwise, no user is deactivated)
+     */
+    public $lastSyncIsComplete;
+
     public function init()
     {
         parent::init();
@@ -211,7 +221,7 @@ class KeycloakUserSource extends BaseUserSource
         }
 
         // Abort on any error: with a partial list, missing users would be deactivated
-        $keycloakUsers = Yii::createObject(KeycloakApi::class)->getAllUsers();
+        $keycloakUsers = Yii::createObject(KeycloakApi::class)->getAllUsers($isComplete);
         if ($keycloakUsers === null) {
             Yii::error('Users sync aborted: the Keycloak users could not be retrieved', 'auth-keycloak');
             return null;
@@ -220,6 +230,8 @@ class KeycloakUserSource extends BaseUserSource
             Yii::error('Users sync aborted: no users were returned by Keycloak', 'auth-keycloak');
             return null;
         }
+        $this->lastSyncKeycloakUsersCount = count($keycloakUsers);
+        $this->lastSyncIsComplete = $isComplete;
 
         $results = array_fill_keys([
             self::SYNC_CREATED,
@@ -285,14 +297,18 @@ class KeycloakUserSource extends BaseUserSource
             $results[self::SYNC_CREATED]++;
         }
 
-        // Deactivate users removed from Keycloak
-        $query = User::find()->where(['user_source' => $this->getId(), 'status' => User::STATUS_ENABLED]);
-        foreach ($query->each() as $user) {
-            /** @var User $user */
-            if (!isset($syncedUserIds[$user->id]) && (new UserSourceService($user))->deleteUser()) {
-                Yii::warning('Users sync: deactivated user ' . $user->username . ' (' . $user->id . '), not found on Keycloak', 'auth-keycloak');
-                $results[self::SYNC_DISABLED]++;
+        // Deactivate users removed from Keycloak, only if all the Keycloak users have been listed
+        if ($isComplete) {
+            $query = User::find()->where(['user_source' => $this->getId(), 'status' => User::STATUS_ENABLED]);
+            foreach ($query->each() as $user) {
+                /** @var User $user */
+                if (!isset($syncedUserIds[$user->id]) && (new UserSourceService($user))->deleteUser()) {
+                    Yii::warning('Users sync: deactivated user ' . $user->username . ' (' . $user->id . '), not found on Keycloak', 'auth-keycloak');
+                    $results[self::SYNC_DISABLED]++;
+                }
             }
+        } else {
+            Yii::warning('Users sync: the list of Keycloak users may be incomplete, so no HumHub user is deactivated for not being found on Keycloak', 'auth-keycloak');
         }
 
         foreach ($notSynced as $result => $lines) {
@@ -385,6 +401,24 @@ class KeycloakUserSource extends BaseUserSource
         }
 
         return $managedValuesBefore === $this->getManagedValues($user) ? self::SYNC_UNCHANGED : self::SYNC_UPDATED;
+    }
+
+    /**
+     * @return int[] number of HumHub users of this source, by status (User::STATUS_* => count)
+     */
+    public function countUsersByStatus(): array
+    {
+        $counts = array_fill_keys([User::STATUS_ENABLED, User::STATUS_DEACTIVATED, User::STATUS_NEED_APPROVAL, User::STATUS_SOFT_DELETED], 0);
+        $rows = User::find()
+            ->select(['status', 'count' => 'COUNT(*)'])
+            ->where(['user_source' => $this->getId()])
+            ->groupBy('status')
+            ->asArray()
+            ->all();
+        foreach ($rows as $row) {
+            $counts[(int)$row['status']] = (int)$row['count'];
+        }
+        return $counts;
     }
 
     private function formatKeycloakUser(array $keycloakUser): string

@@ -73,6 +73,17 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
     protected $usersKeycloakIdToHumhubId = [];
 
     /**
+     * @var string[][] names of the Keycloak groups, by result: 'created', 'linked' (to an existing HumHub group)
+     * and 'withoutMembers' (not created, as they have no members with a HumHub account)
+     */
+    public $results = ['created' => [], 'linked' => [], 'withoutMembers' => []];
+
+    /**
+     * @var bool|null whether the sync ran entirely, null if it was not run (disabled)
+     */
+    public $isCompleted;
+
+    /**
      * @inhertidoc
      * @var int maximum 1 hour
      */
@@ -95,6 +106,7 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
         ) {
             return;
         }
+        $this->isCompleted = false;
         $this->keycloakApi = new KeycloakApi();
 
         if (!$this->initKeycloakGroups()) {
@@ -140,6 +152,16 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
                 $this->updateHumhubGroups();
             }
         }
+
+        if ($this->results['withoutMembers'] !== []) {
+            Yii::warning(
+                'Groups full sync: ' . count($this->results['withoutMembers'])
+                . ' Keycloak groups not created on HumHub, as they have no members with a HumHub account: '
+                . implode(', ', $this->results['withoutMembers']),
+                'auth-keycloak',
+            );
+        }
+        $this->isCompleted = true;
     }
 
     /**
@@ -237,6 +259,7 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
                 ->one();
             if ($groupKeycloak === null) {
                 if (!$this->hasKeycloakGroupMembers($keycloakGroupId)) {
+                    $this->results['withoutMembers'][] = $keycloakGroup['name'];
                     continue;
                 }
                 $groupKeycloak = new GroupKeycloak();
@@ -245,10 +268,13 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
                 $groupKeycloak->show_at_directory = 0;
                 $groupKeycloak->show_at_registration = 0;
             }
+            $isNew = $groupKeycloak->isNewRecord;
             $groupKeycloak->keycloak_id = $keycloakGroupId;
             if (!$groupKeycloak->save()) {
+                Yii::warning('Groups full sync: could not save the HumHub group for the Keycloak group "' . $keycloakGroup['name'] . '". Errors: ' . json_encode($groupKeycloak->getErrors()), 'auth-keycloak');
                 continue;
             }
+            $this->results[$isNew ? 'created' : 'linked'][] = $keycloakGroup['name'];
             $this->humhubGroupsByKeycloakId[$keycloakGroupId] = $groupKeycloak;
         }
     }

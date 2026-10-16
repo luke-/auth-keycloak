@@ -68,6 +68,7 @@ Only HumHub accounts of the Keycloak user source are managed. The following Keyc
 Good to know:
 
 - If the Keycloak API returns an error or no users, the sync is aborted, so that no HumHub account is deactivated by mistake.
+- With a user federation (e.g. LDAP), Keycloak may return an incomplete list of users (users being imported while listing). The list is then retrieved again (up to 3 times) until it contains all the users of the realm. If it is still incomplete, users are created and updated, but no HumHub account is deactivated, and a warning is logged. Enabling the periodic full sync of the user federation on Keycloak avoids this.
 - A HumHub account deactivated by a HumHub admin is re-enabled by the next sync if the user is enabled on Keycloak. Disable the user on Keycloak instead.
 - A HumHub account deleted on HumHub is created again by the next sync if the user is enabled on Keycloak, unless **Deactivate user's account on Keycloak when deleted on HumHub** is enabled (requires write access).
 - Profile fields that are required on HumHub but not provided by Keycloak prevent the account creation: such users are counted as "failed" and a warning is logged.
@@ -84,6 +85,9 @@ php protected/yii auth-keycloak/sync-users
 # List the Keycloak users and their linked HumHub account
 php protected/yii auth-keycloak/list-users
 
+# Run the groups sync now and display the created, linked and not created groups
+php protected/yii auth-keycloak/sync-groups
+
 # Show all the attributes of a Keycloak user and the resulting HumHub attributes (attribute mapping)
 # <user>: HumHub username or email, or Keycloak ID, username or email
 php protected/yii auth-keycloak/show-user <user>
@@ -98,6 +102,8 @@ php protected/yii auth-keycloak/show-user <user>
 - **Sync both ways**: both of the above.
 
 Variants "but no removal on Keycloak/HumHub" never remove groups or members on the given side.
+
+Groups created on HumHub from Keycloak: only the Keycloak groups having members with a HumHub account (or a subgroup having such members) are created, as hidden groups not selectable at registration. A Keycloak group getting its first members is created by the next daily sync (or `php protected/yii auth-keycloak/sync-groups`), not on sign-in.
 
 Subgroups: the Keycloak top-level groups are HumHub groups, and their subgroups are HumHub subgroups. As HumHub supports only one level of subgroups, deeper Keycloak groups are ignored. A group is linked to the group having the same name and the same parent on the other side; once linked, renaming or moving it keeps the link.
 

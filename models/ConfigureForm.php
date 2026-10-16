@@ -13,7 +13,10 @@ use humhub\modules\authKeycloak\authclient\Keycloak;
 use humhub\modules\authKeycloak\jobs\GroupsFullSync;
 use humhub\modules\authKeycloak\jobs\UsersFullSync;
 use humhub\modules\authKeycloak\Module;
+use humhub\modules\authKeycloak\source\KeycloakUserSource;
 use humhub\modules\user\models\Profile;
+use humhub\modules\user\models\User;
+use humhub\modules\user\services\UserSourceService;
 use Yii;
 use yii\base\Model;
 use yii\helpers\Html;
@@ -181,6 +184,10 @@ class ConfigureForm extends Model
      */
     public $groupsSyncMode = self::GROUP_SYNC_MODE_NONE;
 
+    /**
+     * @var string|null cache of {@see getUserSourceCountHint()}
+     */
+    private ?string $userSourceCountHint = null;
 
     /**
      * @inheritdoc
@@ -354,6 +361,34 @@ class ConfigureForm extends Model
     }
 
     /**
+     * @return string number of HumHub users of the Keycloak user source, empty if the user source is disabled
+     */
+    protected function getUserSourceCountHint(): string
+    {
+        // attributeHints() is called for each field
+        return $this->userSourceCountHint ??= $this->buildUserSourceCountHint();
+    }
+
+    private function buildUserSourceCountHint(): string
+    {
+        $collection = UserSourceService::getCollection();
+        if (!$collection->hasUserSource(KeycloakUserSource::SOURCE_ID)) {
+            return '';
+        }
+        /** @var KeycloakUserSource $source */
+        $source = $collection->getUserSource(KeycloakUserSource::SOURCE_ID);
+        $counts = $source->countUsersByStatus();
+
+        return ' ' . Yii::t('AuthKeycloakModule.base', 'Users currently assigned to the Keycloak user source: {total} ({enabled} enabled, {deactivated} deactivated, {needApproval} awaiting approval, {softDeleted} soft deleted).', [
+            'total' => array_sum($counts),
+            'enabled' => $counts[User::STATUS_ENABLED],
+            'deactivated' => $counts[User::STATUS_DEACTIVATED],
+            'needApproval' => $counts[User::STATUS_NEED_APPROVAL],
+            'softDeleted' => $counts[User::STATUS_SOFT_DELETED],
+        ]);
+    }
+
+    /**
      * @inheritdoc
      */
     public function attributeHints()
@@ -408,7 +443,7 @@ class ConfigureForm extends Model
             ]),
             'syncUsers' => Yii::t('AuthKeycloakModule.base', 'Every hour, HumHub accounts are created for new Keycloak users, updated (first name, last name and, depending on the settings above, username and email), and deactivated if the user is disabled or removed on Keycloak. Can also be run with the command {command}.', [
                 'command' => '`php yii auth-keycloak/sync-users`',
-            ]),
+            ]) . $this->getUserSourceCountHint(),
         ];
     }
 

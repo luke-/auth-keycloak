@@ -35,7 +35,11 @@ class GroupsSyncTest extends KeycloakTestCase
         KeycloakTestServer::addUserToGroup($user1KeycloakId, $south);
         KeycloakTestServer::addUserToGroup($user2KeycloakId, $deep);
 
-        (new GroupsFullSync(['firstSync' => true]))->run();
+        $job = new GroupsFullSync(['firstSync' => true]);
+        $job->run();
+        $this->assertTrue($job->isCompleted);
+        $this->assertSame(['Sales', 'North', 'South'], $job->results['created']);
+        $this->assertSame(['Empty'], $job->results['withoutMembers']);
 
         $this->assertHumhubGroups(['Sales', 'Sales/North', 'Sales/South']);
         $this->assertTrue($this->getHumhubGroup($north)->isMember($user1));

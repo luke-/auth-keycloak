@@ -8,10 +8,12 @@
 
 namespace humhub\modules\authKeycloak\tests\codeception\unit;
 
+use humhub\modules\authKeycloak\components\KeycloakApi;
 use humhub\modules\authKeycloak\source\KeycloakUserSource;
 use humhub\modules\authKeycloak\tests\codeception\_support\KeycloakTestCase;
 use humhub\modules\authKeycloak\tests\codeception\_support\KeycloakTestServer;
 use humhub\modules\user\models\User;
+use Yii;
 
 class UsersSyncTest extends KeycloakTestCase
 {
@@ -26,6 +28,7 @@ class UsersSyncTest extends KeycloakTestCase
 
     public function testCreateUpdateAndDeactivate()
     {
+        $countsBefore = $this->getUserSource()->countUsersByStatus();
         $keycloakUserId = KeycloakTestServer::createUser([
             'username' => 'kc.alice',
             'email' => 'alice@keycloak.test',
@@ -69,10 +72,44 @@ class UsersSyncTest extends KeycloakTestCase
         // Removed on Keycloak (another user remains, otherwise the sync is aborted)
         KeycloakTestServer::createUser(['username' => 'kc.bob', 'email' => 'bob@keycloak.test', 'firstName' => 'Bob', 'lastName' => 'Keycloak']);
         KeycloakTestServer::request('DELETE', '/users/' . $keycloakUserId);
-        $results = $this->getUserSource()->syncUsers();
+        $source = $this->getUserSource();
+        $results = $source->syncUsers();
         $this->assertSame(1, $results[KeycloakUserSource::SYNC_DISABLED]);
         $user->refresh();
         $this->assertSame(User::STATUS_DEACTIVATED, (int)$user->status);
+
+        $this->assertSame(1, $source->lastSyncKeycloakUsersCount);
+        // Alice (deactivated) and Bob (enabled)
+        $counts = $source->countUsersByStatus();
+        $this->assertSame(array_sum($countsBefore) + 2, array_sum($counts));
+        $this->assertSame(1, $counts[User::STATUS_ENABLED]);
+    }
+
+    public function testNoDeactivationIfTheListIsIncomplete()
+    {
+        $keycloakUserId = KeycloakTestServer::createUser(['username' => 'kc.alice', 'email' => 'alice@keycloak.test', 'firstName' => 'Alice', 'lastName' => 'Keycloak']);
+        KeycloakTestServer::createUser(['username' => 'kc.bob', 'email' => 'bob@keycloak.test', 'firstName' => 'Bob', 'lastName' => 'Keycloak']);
+        $this->getUserSource()->syncUsers();
+        KeycloakTestServer::request('DELETE', '/users/' . $keycloakUserId);
+
+        // Keycloak reports more users than listed (e.g. user federation importing users while listing)
+        Yii::$container->set(KeycloakApi::class, new class () extends KeycloakApi {
+            public function getUserCount(): ?int
+            {
+                return 1000;
+            }
+        });
+        try {
+            static::logInitialize();
+            $results = $this->getUserSource()->syncUsers();
+        } finally {
+            Yii::$container->clear(KeycloakApi::class);
+        }
+
+        $this->assertSame(0, $results[KeycloakUserSource::SYNC_DISABLED]);
+        $this->assertSame(User::STATUS_ENABLED, (int)User::findOne(['email' => 'alice@keycloak.test'])->status);
+        static::assertLogRegexCount(KeycloakApi::MAX_USERS_LIST_PASSES, '/users listed, but the realm has 1000 users/');
+        static::assertLog('Users sync: the list of Keycloak users may be incomplete, so no HumHub user is deactivated for not being found on Keycloak');
     }
 
     public function testUsersWithExistingEmailAreSkipped()
