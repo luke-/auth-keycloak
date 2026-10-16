@@ -503,7 +503,7 @@ class KeycloakApi extends Component
             'baseUri' => $config->baseUrl . '/',
             'scope' => 'openid email',
             'verify' => $module->apiVerifySsl,
-            'timeout' => $module->apiTimeout,
+            'timeout' => Yii::$app->request->isConsoleRequest ? $module->apiSyncTimeout : $module->apiTimeout,
             'connect_timeout' => $module->apiConnectTimeout,
             'token_storage' => $tokenStorage,
             // Gets the access token with the timeouts above, before the library's own token middleware

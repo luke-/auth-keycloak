@@ -19,6 +19,7 @@ Changelog
 - Fix: The "change password" page was accessible by URL when the option was disabled
 - Enh: Add an option to always sign in with Keycloak (`forceKeycloakAuth`): the login page and the invite links redirect to Keycloak; the HumHub login form remains available with `?noKeycloak=1`
 - Enh: Add Codeception tests running against a Keycloak Docker container (GitHub workflows for HumHub master and develop)
+- Enh: Requests to the Keycloak API from the console (users and groups sync, console commands) use a longer timeout (`apiSyncTimeout` module property, default: 120 seconds), as listing the users can exceed the 10 seconds of `apiTimeout`
 
 1.6.4 (October 5, 2026)
 ------------------
