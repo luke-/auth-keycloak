@@ -131,7 +131,13 @@ class KeycloakApi extends Component
         if (!$this->isConnected()) {
             return null;
         }
-        $result = $this->api->getUsers(['email' => $email, 'exact' => true]);
+        try {
+            // The API client validates query parameters as strings
+            $result = $this->api->getUsers(['email' => $email, 'exact' => 'true']);
+        } catch (CommandClientException|CommandException $e) {
+            Yii::error('Error retrieving user from Keycloak (email: ' . $email . '): ' . $e->getMessage(), 'auth-keycloak');
+            return null;
+        }
         if ($this->hasError($result, 'Error retrieving user from Keycloak (email: ' . $email . ')')) {
             return null;
         }
