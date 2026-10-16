@@ -17,6 +17,7 @@ Changelog
 - Chg: The "Synchronize groups and their members" setting is renamed "Groups sync"
 - Enh: Add the console command `php yii auth-keycloak/show-user <user>` displaying all the attributes of a Keycloak user and the resulting HumHub attributes
 - Fix: The "change password" page was accessible by URL when the option was disabled
+- Enh: Add Codeception tests running against a Keycloak Docker container (GitHub workflows for HumHub master and develop)
 
 1.6.4 (October 5, 2026)
 ------------------
