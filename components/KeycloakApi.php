@@ -434,15 +434,16 @@ class KeycloakApi extends Component
      * @param int|null $total number of results: if set, pages are requested up to it, even after a page having
      * less than the maximum results (with a user federation, Keycloak may return such pages before the last one)
      * @param callable|null $onPage called after each page: function (int $resultsCount)
+     * @param int $pageSize
      * @return array|null all the results, null if an error occurred
      */
-    private function getAllPages(callable $request, string $errorMessage, ?int $total = null, ?callable $onPage = null): ?array
+    private function getAllPages(callable $request, string $errorMessage, ?int $total = null, ?callable $onPage = null, int $pageSize = self::MAX_USERS_RESULT): ?array
     {
         $first = 0;
         $results = [];
         do {
             try {
-                $page = $request($first, self::MAX_USERS_RESULT);
+                $page = $request($first, $pageSize);
             } catch (CommandClientException|CommandException $e) {
                 Yii::error($errorMessage . ': ' . $e->getMessage(), 'auth-keycloak');
                 return null;
@@ -451,11 +452,11 @@ class KeycloakApi extends Component
                 return null;
             }
             array_push($results, ...array_values($page));
-            $first += self::MAX_USERS_RESULT;
+            $first += $pageSize;
             if ($onPage !== null) {
                 $onPage(count($results));
             }
-        } while ($total !== null ? $first < $total : count($page) === self::MAX_USERS_RESULT);
+        } while ($total !== null ? $first < $total : count($page) === $pageSize);
 
         return $results;
     }
@@ -758,6 +759,9 @@ class KeycloakApi extends Component
             return null;
         }
 
+        /** @var Module $module */
+        $module = Yii::$app->getModule('auth-keycloak');
+        $pageSize = max(1, (int)$module->usersListPageSize);
         $count = $this->getUserCount();
         $users = [];
         for ($pass = 1; $pass <= self::MAX_USERS_LIST_PASSES; $pass++) {
@@ -770,6 +774,7 @@ class KeycloakApi extends Component
                 'Error retrieving users from Keycloak',
                 $count,
                 $onProgress !== null ? static fn($listedCount) => $onProgress($listedCount, $count, $pass) : null,
+                $pageSize,
             );
             if ($pageUsers === null) {
                 return null;

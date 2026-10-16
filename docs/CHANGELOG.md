@@ -24,6 +24,7 @@ Changelog
 - Chg: The groups sync creates on HumHub only the Keycloak groups having members with a HumHub account (or a subgroup having such members); the created groups are hidden in the directory and not selectable at registration
 - Enh: The number of HumHub users of the Keycloak user source (by status) is displayed in the module settings and by the `sync-users` console command (with the number of Keycloak users, the duration and a progress bar)
 - Fix: The users sync stopped listing the Keycloak users at the first page having less than 100 users, which Keycloak may return before the last page with a user federation (e.g. LDAP): pages are now requested up to the number of users of the realm
+- Enh: The Keycloak users are listed by pages of 500 users instead of 100 (`usersListPageSize` module property), as Keycloak may skip users at the page boundaries with a user federation
 - Enh: The users sync compares the listed Keycloak users with the number of users of the realm and lists them again (up to 3 times, merging the lists) if some are missing, as Keycloak may return an incomplete list with a user federation (e.g. LDAP); if the list remains incomplete, no HumHub user is deactivated
 - Enh: Add the console command `php yii auth-keycloak/sync-groups` running the groups sync and displaying the created, linked and not created groups
 - Fix: The groups sync failed with an uncaught exception when the members of a Keycloak group could not be retrieved (e.g. timeout)

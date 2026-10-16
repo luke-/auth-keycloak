@@ -10,6 +10,7 @@ namespace humhub\modules\authKeycloak\tests\codeception\unit;
 
 use humhub\modules\authKeycloak\components\KeycloakApi;
 use tests\codeception\_support\HumHubDbTestCase;
+use Yii;
 
 class UsersListTest extends HumHubDbTestCase
 {
@@ -44,6 +45,7 @@ class UsersListTest extends HumHubDbTestCase
 
     private function getApi(array $users, int $count, callable $getUsers): KeycloakApi
     {
+        Yii::$app->getModule('auth-keycloak')->usersListPageSize = 100;
         $api = new class ($count) extends KeycloakApi {
             public function __construct(private int $count)
             {
