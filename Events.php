@@ -11,6 +11,7 @@ namespace humhub\modules\authKeycloak;
 
 use humhub\commands\CronController;
 use humhub\compat\HForm;
+use humhub\components\Controller;
 use humhub\helpers\ControllerHelper;
 use humhub\libs\ParameterEvent;
 use humhub\modules\admin\models\forms\UserEditForm;
@@ -87,8 +88,7 @@ class Events
     public static function onAuthControllerBeforeAction(ActionEvent $event)
     {
         if ($event->action->id === 'login' && static::isForcedKeycloakAuth()) {
-            $event->isValid = false;
-            Yii::$app->response->redirect(['/user/auth/external', 'authclient' => Keycloak::DEFAULT_NAME]);
+            static::redirectToKeycloak($event);
         }
     }
 
@@ -104,8 +104,21 @@ class Events
             && Yii::$app->request->get('token')
             && static::isForcedKeycloakAuth()
         ) {
-            $event->isValid = false;
-            Yii::$app->response->redirect(['/user/auth/external', 'authclient' => Keycloak::DEFAULT_NAME]);
+            static::redirectToKeycloak($event);
+        }
+    }
+
+    private static function redirectToKeycloak(ActionEvent $event): void
+    {
+        $event->isValid = false;
+        $url = ['/user/auth/external', 'authclient' => Keycloak::DEFAULT_NAME];
+        $controller = $event->action->controller;
+        if (Yii::$app->request->isAjax && $controller instanceof Controller) {
+            // The login modal (e.g. "Sign in" button) is loaded by AJAX: a redirect would be followed by the XHR,
+            // not by the browser, so a page navigating to Keycloak is returned instead (as the core login does)
+            Yii::$app->response->content = $controller->htmlRedirect($url);
+        } else {
+            Yii::$app->response->redirect($url);
         }
     }
 

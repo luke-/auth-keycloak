@@ -28,6 +28,7 @@ class ForceKeycloakAuthTest extends HumHubDbTestCase
         $_SERVER['REQUEST_METHOD'] = 'GET';
         Yii::$app->request->setQueryParams([]);
         Yii::$app->response->headers->removeAll();
+        Yii::$app->response->content = null;
         Yii::$app->session->removeAllFlashes();
         $this->configure(true);
     }
@@ -37,6 +38,20 @@ class ForceKeycloakAuthTest extends HumHubDbTestCase
         $event = $this->login();
         $this->assertFalse($event->isValid);
         $this->assertStringContainsString('authclient=Keycloak', Yii::$app->response->headers->get('Location'));
+    }
+
+    public function testLoginModalNavigatesToKeycloak()
+    {
+        // The login modal is loaded by AJAX: the browser must navigate, not the XHR
+        Yii::$app->request->headers->set('X-Requested-With', 'XMLHttpRequest');
+        try {
+            $event = $this->login();
+        } finally {
+            Yii::$app->request->headers->remove('X-Requested-With');
+        }
+        $this->assertFalse($event->isValid);
+        $this->assertNull(Yii::$app->response->headers->get('Location'));
+        $this->assertStringContainsString('authclient=Keycloak', Yii::$app->response->content);
     }
 
     public function testNoRedirectIfDisabled()
