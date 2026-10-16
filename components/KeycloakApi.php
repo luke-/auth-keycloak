@@ -459,6 +459,61 @@ class KeycloakApi extends Component
     }
 
     /**
+     * @param string $keycloakUserId
+     * @return array|null Keycloak user representation, null if not found or an error occurred
+     */
+    public function getUser(string $keycloakUserId): ?array
+    {
+        if (!$this->isConnected()) {
+            return null;
+        }
+        try {
+            $result = $this->api->getUser(['id' => $keycloakUserId]);
+        } catch (CommandClientException|CommandException $e) {
+            Yii::error('Error retrieving user from Keycloak (ID: ' . $keycloakUserId . '): ' . $e->getMessage(), 'auth-keycloak');
+            return null;
+        }
+        if (
+            $this->hasError($result, 'Error retrieving user from Keycloak (ID: ' . $keycloakUserId . ')')
+            || !is_array($result)
+            || empty($result['id'])
+        ) {
+            return null;
+        }
+        return $result;
+    }
+
+    /**
+     * Finds a Keycloak user by its exact username or email
+     * @param string $usernameOrEmail
+     * @return array|null Keycloak user representation, null if not found or an error occurred
+     */
+    public function findUser(string $usernameOrEmail): ?array
+    {
+        if (!$this->isConnected()) {
+            return null;
+        }
+        foreach (['username', 'email'] as $param) {
+            try {
+                $result = $this->api->getUsers([$param => $usernameOrEmail, 'exact' => 'true']);
+            } catch (CommandClientException|CommandException $e) {
+                Yii::error('Error retrieving user from Keycloak (' . $param . ': ' . $usernameOrEmail . '): ' . $e->getMessage(), 'auth-keycloak');
+                return null;
+            }
+            if (
+                $this->hasError($result, 'Error retrieving user from Keycloak (' . $param . ': ' . $usernameOrEmail . ')')
+                || !is_array($result)
+            ) {
+                return null;
+            }
+            if (count($result) === 1) {
+                return reset($result);
+            }
+        }
+        return null;
+    }
+
+    /**
      * Returns all users of the realm (Keycloak user representations)
      * @return array|null null if an error occurred
      */

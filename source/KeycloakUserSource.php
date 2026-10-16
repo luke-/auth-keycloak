@@ -78,6 +78,7 @@ class KeycloakUserSource extends BaseUserSource
      * the affected fields stay editable in the admin UI.
      *
      * With the `syncUsers` setting, the first and last names are also synced (hourly and on sign in).
+     * The profile fields of the `attributeMapping` setting are always synced (on sign in and by the users sync).
      */
     public function getManagedAttributes(): array
     {
@@ -97,8 +98,11 @@ class KeycloakUserSource extends BaseUserSource
             $attrs[] = 'firstname';
             $attrs[] = 'lastname';
         }
+        foreach (array_keys(ConfigureForm::parseAttributeMapping($module->settings->get('attributeMapping'))) as $field) {
+            $attrs[] = $field;
+        }
 
-        return $attrs;
+        return array_values(array_unique($attrs));
     }
 
     public function requiresApproval(?string $authClientId = null): bool

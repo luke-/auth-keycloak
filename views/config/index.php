@@ -92,6 +92,7 @@ $requirements = file_exists($requirementsFile) ? (include $module->basePath . '/
         <?= $form->field($model, 'hideRegistrationUsernameField')->checkbox() ?>
         <?= $form->field($model, 'hideAdminUserEditPassword')->checkbox() ?>
         <?= $form->field($model, 'trustOnlyVerifiedEmail')->checkbox() ?>
+        <?= $form->field($model, 'attributeMapping')->textarea(['rows' => 4, 'placeholder' => "phone_work=phoneNumber\ncity=locality"]) ?>
         <?= $form->endCollapsibleFields(); ?>
 
         <?= $form->beginCollapsibleFields(Yii::t('AuthKeycloakModule.base', 'Advanced settings requiring access to the Keycloak API (optional)')) ?>

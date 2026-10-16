@@ -14,7 +14,9 @@ use humhub\modules\authKeycloak\components\KeycloakApi;
 use humhub\modules\authKeycloak\models\ConfigureForm;
 use humhub\modules\authKeycloak\source\KeycloakUserSource;
 use humhub\modules\user\models\Auth;
+use humhub\modules\user\models\User;
 use humhub\modules\user\services\UserSourceService;
+use Yii;
 use yii\console\Controller;
 use yii\console\ExitCode;
 use yii\console\widgets\Table;
@@ -99,6 +101,113 @@ class KeycloakController extends Controller
         $this->stdout("\n" . count($rows) . " Keycloak users.\n\n");
 
         return ExitCode::OK;
+    }
+
+    /**
+     * Shows all the attributes of a Keycloak user and the resulting HumHub attributes (profile fields mapping)
+     *
+     * @param string $user HumHub username or email, or Keycloak ID, username or email
+     */
+    public function actionShowUser($user)
+    {
+        $this->stdout('*** Keycloak user details for "' . $user . "\"\n\n");
+
+        if (($error = $this->checkApi()) !== null) {
+            $this->stderr('Error: ' . $error . "\n\n", Console::FG_RED);
+            return ExitCode::UNSPECIFIED_ERROR;
+        }
+
+        $authClient = Yii::$app->authClientCollection->hasClient(Keycloak::DEFAULT_NAME)
+            ? Yii::$app->authClientCollection->getClient(Keycloak::DEFAULT_NAME)
+            : null;
+        if (!$authClient instanceof Keycloak) {
+            $this->stderr("Error: the Keycloak auth client is not enabled.\n\n", Console::FG_RED);
+            return ExitCode::UNSPECIFIED_ERROR;
+        }
+
+        $api = new KeycloakApi();
+        $keycloakUser = null;
+        $humhubUser = User::find()->where(['username' => $user])->orWhere(['email' => $user])->one();
+        if ($humhubUser !== null && ($auth = $api->getUserAuth($humhubUser->id)) !== null) {
+            $keycloakUser = $api->getUser($auth->source_id);
+        }
+        if ($keycloakUser === null && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $user)) {
+            $keycloakUser = $api->getUser($user);
+        }
+        $keycloakUser ??= $api->findUser($user);
+        if ($keycloakUser === null) {
+            $this->stderr("Error: no Keycloak user found (or the API returned an error, see the error log).\n\n", Console::FG_RED);
+            return ExitCode::UNSPECIFIED_ERROR;
+        }
+
+        $rows = [];
+        foreach ($keycloakUser as $name => $value) {
+            if ($name !== 'attributes') {
+                $rows[] = [$name, $this->formatValue($value)];
+            }
+        }
+        $this->stdout("Keycloak user:\n");
+        echo Table::widget(['headers' => ['Name', 'Value'], 'rows' => $rows]) . "\n";
+
+        $rows = [];
+        foreach ($keycloakUser['attributes'] ?? [] as $name => $value) {
+            $rows[] = [$name, $this->formatValue($value)];
+        }
+        $this->stdout("Keycloak user attributes (usable in the profile fields mapping):\n");
+        if ($rows === []) {
+            $this->stdout("No attributes.\n\n");
+        } else {
+            echo Table::widget(['headers' => ['Keycloak attribute', 'Value'], 'rows' => $rows]) . "\n";
+        }
+
+        $auth = Auth::findOne(['source' => Keycloak::DEFAULT_NAME, 'source_id' => (string)$keycloakUser['id']]);
+        $humhubUser = $auth?->user;
+        $attributes = $authClient->normalizeApiUserAttributes($keycloakUser);
+        $managedAttributes = $humhubUser !== null ? (new UserSourceService($humhubUser))->getManagedAttributes() : [];
+        $rows = [];
+        foreach ($authClient->getNormalizeUserAttributeMap() as $field => $actualName) {
+            $row = [
+                $field,
+                is_string($actualName) ? $actualName : '---',
+                $this->formatValue($attributes[$field] ?? null),
+            ];
+            if ($humhubUser !== null) {
+                $humhubValue = $field === 'id'
+                    ? $auth->source_id
+                    : ($humhubUser->hasAttribute($field) ? $humhubUser->getAttribute($field) : $humhubUser->profile?->getAttribute($field));
+                $row[] = $this->formatValue($humhubValue);
+                $row[] = in_array($field, $managedAttributes, true) ? 'Yes' : 'No';
+            }
+            $rows[] = $row;
+        }
+        $headers = ['HumHub', 'Keycloak', 'Keycloak value'];
+        if ($humhubUser !== null) {
+            array_push($headers, 'HumHub value', 'Synced');
+        }
+        $this->stdout('HumHub attributes' . ($humhubUser !== null
+            ? ' (linked to the HumHub user ' . $humhubUser->username . ', ID ' . $humhubUser->id . ', user source "' . $humhubUser->user_source . '")'
+            : ' (no linked HumHub user)') . ":\n");
+        echo Table::widget(['headers' => $headers, 'rows' => $rows]) . "\n";
+
+        $this->stdout("Values read from the Keycloak API. On sign in, the claims sent by Keycloak depend on the mappers of the client scopes.\n\n");
+
+        return ExitCode::OK;
+    }
+
+    private function formatValue($value): string
+    {
+        if ($value === null || $value === '' || $value === []) {
+            return '---';
+        }
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+        if (is_array($value)) {
+            return array_is_list($value) && count(array_filter($value, 'is_scalar')) === count($value)
+                ? implode(', ', $value)
+                : json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+        return (string)$value;
     }
 
     /**

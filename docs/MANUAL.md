@@ -13,7 +13,26 @@ On the first sign-in with Keycloak:
   If **Use the email sent by Keycloak only if it is verified on Keycloak** is enabled, an unverified Keycloak email is never used for this.
 - Otherwise, a new HumHub account is created (with the HumHub registration form if required profile fields are missing).
 
-Users signed in with Keycloak are managed by the Keycloak user source: depending on the settings, some of their profile fields (username, email, first name, last name) cannot be changed on HumHub, and the HumHub password page is hidden.
+Users signed in with Keycloak are managed by the Keycloak user source: depending on the settings, some of their profile fields (username, email, first name, last name, mapped profile fields) cannot be changed on HumHub, and the HumHub password page is hidden.
+
+## Profile fields mapping
+
+**Profile fields mapping** (in "Advanced settings") maps Keycloak user attributes to HumHub profile fields, one mapping per line:
+
+```
+phone_work=phoneNumber
+city=locality
+firstname=given_name
+```
+
+The left side is the internal name of a HumHub profile field (`Administration -> Users -> Profiles`), the right side is the Keycloak attribute:
+
+- On sign in, it is the claim name sent by Keycloak (userinfo). On Keycloak, add a mapper of type "User Attribute" to the client's dedicated scope (`Clients -> <client> -> Client scopes -> <client>-dedicated`), with the same name for "User Attribute" and "Token Claim Name", and "Add to userinfo" enabled. Do not use dots in the claim name: Keycloak would send a nested claim.
+- For the users sync, it is the name of the Keycloak user attribute. The standard claims `given_name`, `family_name`, `email`, `preferred_username` and `sub` can also be used.
+
+Mapped fields are filled when the account is created, updated on each sign in and by the users sync, and cannot be changed on HumHub anymore (for accounts of the Keycloak user source). The first and last names are mapped by default (`given_name` and `family_name`), a mapping line overrides them. If a Keycloak attribute has several values, only the first one is used. The users sync empties a mapped field if the attribute was removed on Keycloak.
+
+To display all the attributes of a Keycloak user and the resulting HumHub values, run `php protected/yii auth-keycloak/show-user <user>` (see [console commands](#console-commands)).
 
 ## Users sync
 
@@ -21,7 +40,7 @@ If **Fetch/Update users automatically** is enabled (requires the API access, see
 
 - **Created**: a HumHub account is created for each enabled Keycloak user not yet linked to a HumHub account, without admin approval.
   If the username is already taken on HumHub, a numeric suffix is added (e.g. `john.doe_2`).
-- **Updated**: first name and last name, and the username and email if **Update user's username/email on HumHub when changed on Keycloak** are enabled.
+- **Updated**: first name and last name, the fields of the [profile fields mapping](#profile-fields-mapping), and the username and email if **Update user's username/email on HumHub when changed on Keycloak** are enabled.
   These fields cannot be changed on HumHub anymore.
 - **Deactivated**: HumHub accounts of Keycloak users disabled or removed on Keycloak.
 - **Re-enabled**: deactivated HumHub accounts of Keycloak users enabled again on Keycloak.
@@ -50,6 +69,10 @@ php protected/yii auth-keycloak/sync-users
 
 # List the Keycloak users and their linked HumHub account
 php protected/yii auth-keycloak/list-users
+
+# Show all the attributes of a Keycloak user and the resulting HumHub attributes (profile fields mapping)
+# <user>: HumHub username or email, or Keycloak ID, username or email
+php protected/yii auth-keycloak/show-user <user>
 ```
 
 ## Groups sync

@@ -284,15 +284,32 @@ class Keycloak extends OpenIdConnect
             'family_name' => $keycloakUser['lastName'] ?? null,
         ];
 
-        // A custom username mapper can only be resolved from a user attribute having the same name
-        $usernameMapper = (string)$this->getNormalizeUserAttributeMap()['username'];
-        if (!array_key_exists($usernameMapper, $claims)) {
-            $claims[$usernameMapper] = $keycloakUser['attributes'][$usernameMapper][0] ?? null;
+        // Custom claims (username mapper, profile fields mapping) can only be resolved from a user attribute having the same name
+        foreach ($this->getNormalizeUserAttributeMap() as $actualName) {
+            if (is_string($actualName) && !array_key_exists($actualName, $claims)) {
+                $claims[$actualName] = $keycloakUser['attributes'][$actualName][0] ?? null;
+            }
         }
 
         $attributes = $this->normalizeUserAttributes(array_filter($claims, static fn($value) => $value !== null));
+        $attributes = array_filter($attributes, static fn($value) => $value !== null && $value !== '');
 
-        return array_filter($attributes, static fn($value) => $value !== null && $value !== '');
+        // The API returns all the user attributes: a mapped attribute that is missing has been removed on Keycloak
+        foreach (array_keys($this->getAttributeMapping()) as $field) {
+            $attributes[$field] ??= '';
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @return array HumHub profile field => Keycloak claim name, from the "Profile fields mapping" setting
+     */
+    public function getAttributeMapping(): array
+    {
+        /** @var Module $module */
+        $module = Yii::$app->getModule('auth-keycloak');
+        return ConfigureForm::parseAttributeMapping($module->settings->get('attributeMapping'));
     }
 
     /**
@@ -338,13 +355,14 @@ class Keycloak extends OpenIdConnect
         /** @var Module $module */
         $module = Yii::$app->getModule('auth-keycloak');
 
-        return [
-            'id' => 'sub',
-            'username' => $module->settings->get('usernameMapper'),
+        return array_merge([
             'firstname' => 'given_name',
             'lastname' => 'family_name',
+        ], $this->getAttributeMapping(), [
+            'id' => 'sub',
+            'username' => $module->settings->get('usernameMapper'),
             'email' => 'email',
-        ];
+        ]);
     }
 
     /**
@@ -356,6 +374,14 @@ class Keycloak extends OpenIdConnect
     protected function normalizeUserAttributes($attributes)
     {
         $attributes = parent::normalizeUserAttributes($attributes);
+
+        // Multivalued claims: only the first value is used
+        foreach (array_keys($this->getAttributeMapping()) as $field) {
+            if (isset($attributes[$field]) && is_array($attributes[$field])) {
+                $attributes[$field] = $attributes[$field] === [] ? null : reset($attributes[$field]);
+            }
+        }
+
         if (
             isset($attributes['username'], $attributes['email'])
             && $attributes['username'] === $attributes['email']

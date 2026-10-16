@@ -13,6 +13,7 @@ use humhub\modules\authKeycloak\authclient\Keycloak;
 use humhub\modules\authKeycloak\jobs\GroupsFullSync;
 use humhub\modules\authKeycloak\jobs\UsersFullSync;
 use humhub\modules\authKeycloak\Module;
+use humhub\modules\user\models\Profile;
 use Yii;
 use yii\base\Model;
 use yii\helpers\Html;
@@ -108,6 +109,10 @@ class ConfigureForm extends Model
      */
     public $usernameMapper = 'sub';
     /**
+     * @var string one mapping per line: `humhub-profile-field=keycloak-attribute`
+     */
+    public $attributeMapping = '';
+    /**
      * @var string
      */
     public $title;
@@ -188,7 +193,58 @@ class ConfigureForm extends Model
             [['apiAuthMethod'], 'in', 'range' => [self::API_AUTH_METHOD_USER, self::API_AUTH_METHOD_SERVICE_ACCOUNT]],
             [['enabled', 'hideRegistrationUsernameField', 'hideAdminUserEditPassword', 'trustOnlyVerifiedEmail', 'removeKeycloakSessionsAfterLogout', 'updateHumhubUsernameFromBrokerUsername', 'updatedBrokerUsernameFromHumhubUsername', 'updateHumhubEmailFromBrokerEmail', 'updatedBrokerEmailFromHumhubEmail', 'addChangePasswordFormToAccount', 'disableKeycloakUserOnDelete', 'apiReadOnly', 'syncUsers'], 'boolean'],
             [['groupsSyncMode'], 'safe'],
+            [['attributeMapping'], 'string'],
+            [['attributeMapping'], 'validateAttributeMapping'],
         ];
+    }
+
+    /**
+     * Checks the format of each line and that the HumHub field is a profile field
+     */
+    public function validateAttributeMapping($attribute): void
+    {
+        $profile = new Profile();
+        foreach (explode("\n", (string)$this->$attribute) as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            $parts = array_map('trim', explode('=', $line, 2));
+            if (count($parts) !== 2 || $parts[0] === '' || $parts[1] === '') {
+                $this->addError($attribute, Yii::t('AuthKeycloakModule.base', 'Invalid line "{line}", the expected format is {format}.', [
+                    'line' => $line,
+                    'format' => 'humhub-profile-field=keycloak-attribute',
+                ]));
+            } elseif ($parts[0] === 'user_id' || !$profile->hasAttribute($parts[0])) {
+                $this->addError($attribute, Yii::t('AuthKeycloakModule.base', '"{field}" is not a HumHub profile field.', [
+                    'field' => $parts[0],
+                ]));
+            }
+        }
+    }
+
+    /**
+     * @param string|null $attributeMapping one mapping per line: `humhub-profile-field=keycloak-attribute`
+     * @return array HumHub profile field => Keycloak attribute (claim name)
+     */
+    public static function parseAttributeMapping(?string $attributeMapping): array
+    {
+        $mapping = [];
+        foreach (explode("\n", (string)$attributeMapping) as $line) {
+            $parts = array_map('trim', explode('=', $line, 2));
+            if (count($parts) === 2 && $parts[0] !== '' && $parts[1] !== '' && $parts[0] !== 'user_id') {
+                $mapping[$parts[0]] = $parts[1];
+            }
+        }
+        return $mapping;
+    }
+
+    /**
+     * @return array HumHub profile field => Keycloak attribute (claim name)
+     */
+    public function getAttributeMappingArray(): array
+    {
+        return static::parseAttributeMapping($this->attributeMapping);
     }
 
     /**
@@ -240,6 +296,7 @@ class ConfigureForm extends Model
         $this->realm = $settings->get('realm', $this->realm);
         $this->baseUrl = $settings->get('baseUrl');
         $this->usernameMapper = $settings->get('usernameMapper', $this->usernameMapper);
+        $this->attributeMapping = $settings->get('attributeMapping', $this->attributeMapping);
         $this->title = $settings->get('title', Yii::t('AuthKeycloakModule.base', self::DEFAULT_TITLE));
         $this->hideRegistrationUsernameField = (bool)$settings->get('hideRegistrationUsernameField', $this->hideRegistrationUsernameField);
         $this->hideAdminUserEditPassword = (bool)$settings->get('hideAdminUserEditPassword', $this->hideAdminUserEditPassword);
@@ -275,6 +332,7 @@ class ConfigureForm extends Model
             'realm' => Yii::t('AuthKeycloakModule.base', 'Realm name'),
             'baseUrl' => Yii::t('AuthKeycloakModule.base', 'Base URL'),
             'usernameMapper' => Yii::t('AuthKeycloakModule.base', 'Keycloak attribute to use to get username on account creation'),
+            'attributeMapping' => Yii::t('AuthKeycloakModule.base', 'Profile fields mapping'),
             'title' => Yii::t('AuthKeycloakModule.base', 'Title of the button'),
             'hideRegistrationUsernameField' => Yii::t('AuthKeycloakModule.base', 'Hide username field in registration form'),
             'hideAdminUserEditPassword' => Yii::t('AuthKeycloakModule.base', 'In admin, hide password fields in edit user form'),
@@ -306,6 +364,15 @@ class ConfigureForm extends Model
             'realm' => Yii::t('AuthKeycloakModule.base', 'Called {nameInEnglish} in english', ['nameInEnglish' => '“Realm”']),
             'baseUrl' => 'Depending on your configuration: https://idp-domain.tdl or https://idp-domain.tdl/auth',
             'usernameMapper' => Yii::t('AuthKeycloakModule.base', '`preferred_username` (to use Keycloak username), `sub` (to use Keycloak ID) or other custom Token Claim Name'),
+            'attributeMapping' => Yii::t('AuthKeycloakModule.base', 'One mapping per line, format: {format}, e.g. {example}. The Keycloak attribute is the claim name sent on sign in and the user attribute name read by the users sync: on Keycloak, add a {userAttributeMapper} mapper to the client\'s dedicated scope with the same name for {userAttribute} and {tokenClaimName}, and {addToUserinfo} enabled. Mapped fields are updated on each sign in and by the users sync, and cannot be changed on HumHub anymore. The standard fields (first name, last name) are mapped by default. To display all the attributes of a Keycloak user, run {command}.', [
+                'format' => '`humhub-profile-field=keycloak-attribute`',
+                'example' => '`phone_work=phoneNumber`',
+                'userAttributeMapper' => '“User Attribute”',
+                'userAttribute' => '“User Attribute”',
+                'tokenClaimName' => '“Token Claim Name”',
+                'addToUserinfo' => '“Add to userinfo”',
+                'command' => '`php yii auth-keycloak/show-user <username>`',
+            ]),
             'title' => Yii::t('AuthKeycloakModule.base', 'If you set a custom title, it will not be translated to the user\'s language unless you have a custom translation file in the protected/config folder. Leave blank to set default title.'),
             'hideRegistrationUsernameField' => Yii::t('AuthKeycloakModule.base', 'If the username sent by Keycloak is the user\'s email, it is replaced by a username auto-generated from the first and last name (CamelCase formatted)'),
             'hideAdminUserEditPassword' => Yii::t('AuthKeycloakModule.base', 'For administrators allowed to manage users'),
@@ -380,6 +447,7 @@ class ConfigureForm extends Model
         $module->settings->set('realm', trim((string)$this->realm));
         $module->settings->set('baseUrl', rtrim(trim((string)$this->baseUrl), '/'));
         $module->settings->set('usernameMapper', trim((string)$this->usernameMapper));
+        $module->settings->set('attributeMapping', trim((string)$this->attributeMapping));
         if (!$this->title) {
             $this->title = self::DEFAULT_TITLE;
         }
