@@ -7,6 +7,7 @@ A new button "Keycloak" (which can be renamed) will appear on the login page.
 ## Features
 
 - OpenID Connect
+- Optionally, always sign in with Keycloak (the login page redirects to Keycloak)
 - Keycloak Back-channel logout (1)
 - Possibility to add a page in account settings allowing users to change their Keycloak password
 - Users synchronization from Keycloak (hourly and with the console command `php yii auth-keycloak/sync-users`): HumHub accounts are created, updated, and deactivated when disabled or removed on Keycloak

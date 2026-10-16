@@ -15,6 +15,14 @@ On the first sign-in with Keycloak:
 
 Users signed in with Keycloak are managed by the Keycloak user source: depending on the settings, some of their profile fields (username, email, first name, last name, mapped profile fields) cannot be changed on HumHub, and the HumHub password page is hidden.
 
+### Always sign in with Keycloak
+
+If **Always sign in with Keycloak** is enabled (in "Advanced settings"), the HumHub login page and the invite links redirect to Keycloak:
+
+- The HumHub login form remains available at `/user/auth/login?noKeycloak=1`, e.g. for local administrators. Make sure that at least one administrator can sign in with Keycloak or with this URL.
+- If signing in with Keycloak fails (e.g. the account is not approved yet), the HumHub login page is displayed with the error message instead of redirecting to Keycloak again.
+- Enable **Remove user's Keycloak sessions after logout** (requires write access to the Keycloak API): otherwise, users signing out are redirected to Keycloak, which signs them in again with their Keycloak session.
+
 ## Attribute mapping
 
 **Attribute mapping** maps Keycloak user attributes to the HumHub username and profile fields, one mapping per line:

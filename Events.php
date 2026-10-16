@@ -35,6 +35,7 @@ use humhub\modules\user\models\User;
 use humhub\modules\user\widgets\AccountProfileMenu;
 use Throwable;
 use Yii;
+use yii\base\ActionEvent;
 use yii\base\Event;
 use yii\db\AfterSaveEvent;
 use yii\helpers\Console;
@@ -76,6 +77,55 @@ class Events
                 'clientSecret' => $config->clientSecret,
             ]);
         }
+    }
+
+    /**
+     * Redirects the login page to Keycloak if "Always sign in with Keycloak" is enabled
+     * (bypass: `?noKeycloak=1`)
+     * @param ActionEvent $event
+     */
+    public static function onAuthControllerBeforeAction(ActionEvent $event)
+    {
+        if ($event->action->id === 'login' && static::isForcedKeycloakAuth()) {
+            $event->isValid = false;
+            Yii::$app->response->redirect(['/user/auth/external', 'authclient' => Keycloak::DEFAULT_NAME]);
+        }
+    }
+
+    /**
+     * Invite links (by e-mail token or by shared link) open the registration form instead of the login page:
+     * with "Always sign in with Keycloak", the invited users are also redirected to Keycloak
+     * @param ActionEvent $event
+     */
+    public static function onRegistrationControllerBeforeAction(ActionEvent $event)
+    {
+        if (
+            in_array($event->action->id, ['index', 'by-link'], true)
+            && Yii::$app->request->get('token')
+            && static::isForcedKeycloakAuth()
+        ) {
+            $event->isValid = false;
+            Yii::$app->response->redirect(['/user/auth/external', 'authclient' => Keycloak::DEFAULT_NAME]);
+        }
+    }
+
+    private static function isForcedKeycloakAuth(): bool
+    {
+        if (
+            !Yii::$app->request->isGet
+            || Yii::$app->request->get('noKeycloak')
+            || !Yii::$app->user->isGuest
+            // A failed Keycloak sign in redirects to the login page with an error message: show it
+            // instead of redirecting to Keycloak again (which could sign in the user again, in a loop)
+            || Yii::$app->session->getAllFlashes() !== []
+        ) {
+            return false;
+        }
+
+        $config = new ConfigureForm();
+        return $config->enabled
+            && $config->forceKeycloakAuth
+            && Yii::$app->authClientCollection->hasClient(Keycloak::DEFAULT_NAME);
     }
 
     /**
