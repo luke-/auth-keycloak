@@ -55,7 +55,16 @@ class KeycloakController extends Controller
         /** @var KeycloakUserSource $source */
         $source = $collection->getUserSource(KeycloakUserSource::SOURCE_ID);
         $start = microtime(true);
-        $results = $source->syncUsers();
+        $progressStep = null;
+        $results = $source->syncUsers(function (string $step, int $done, ?int $total, int $pass) use (&$progressStep) {
+            $this->showProgress($progressStep, $step . $pass, $step === KeycloakUserSource::PROGRESS_LIST
+                ? 'Retrieving the Keycloak users' . ($pass > 1 ? ' (pass ' . $pass . ')' : '') . ': '
+                : 'Syncing the HumHub users: ', $done, $total);
+        });
+        if ($progressStep !== null) {
+            Console::endProgress();
+        }
+        $this->stdout("\n");
         if ($results === null) {
             $this->stderr("Error: the sync could not run, see the error log.\n\n", Console::FG_RED);
             return ExitCode::UNSPECIFIED_ERROR;
@@ -246,6 +255,31 @@ class KeycloakController extends Controller
         $this->stdout("Values read from the Keycloak API. On sign in, the claims sent by Keycloak depend on the mappers of the client scopes.\n\n");
 
         return ExitCode::OK;
+    }
+
+    /**
+     * @param string|null $currentStep step of the progress bar being displayed, updated
+     * @param string $step a new progress bar is started when the step changes
+     * @param int|null $total if null, only the number of done items is displayed
+     */
+    private function showProgress(?string &$currentStep, string $step, string $prefix, int $done, ?int $total): void
+    {
+        if ($total === null || $total <= 0) {
+            $this->stdout("\r" . $prefix . $done);
+            $currentStep = $step;
+            return;
+        }
+        // With a user federation, more users than the total may be listed
+        $done = min($done, $total);
+        if ($step !== $currentStep) {
+            if ($currentStep !== null) {
+                Console::endProgress();
+            }
+            Console::startProgress($done, $total, $prefix);
+            $currentStep = $step;
+        } else {
+            Console::updateProgress($done, $total, $prefix);
+        }
     }
 
     private function formatDuration(?float $seconds): string

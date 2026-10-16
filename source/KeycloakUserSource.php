@@ -47,6 +47,12 @@ class KeycloakUserSource extends BaseUserSource
     public const SYNC_FAILED = 'failed';
 
     /**
+     * Steps of a user sync, see {@see syncUsers()}
+     */
+    public const PROGRESS_LIST = 'list';
+    public const PROGRESS_SYNC = 'sync';
+
+    /**
      * @var int|null number of Keycloak users retrieved by the last {@see syncUsers()}
      */
     public $lastSyncKeycloakUsersCount;
@@ -213,9 +219,12 @@ class KeycloakUserSource extends BaseUserSource
      * Only users owned by this source are updated or deactivated. Keycloak users whose email is already used
      * by another HumHub account are skipped (they are linked on their first sign in with Keycloak, if allowed).
      *
+     * @param callable|null $onProgress function (string $step, int $done, ?int $total, int $pass):
+     * $step is PROGRESS_LIST (retrieving the Keycloak users, $pass being the number of the list request,
+     * see {@see KeycloakApi::getAllUsers()}) or PROGRESS_SYNC (syncing the HumHub users)
      * @return array|null number of users per result (SYNC_* constants), null if the sync could not run
      */
-    public function syncUsers(): ?array
+    public function syncUsers(?callable $onProgress = null): ?array
     {
         $authClient = Yii::$app->authClientCollection->hasClient(Keycloak::DEFAULT_NAME)
             ? Yii::$app->authClientCollection->getClient(Keycloak::DEFAULT_NAME)
@@ -227,7 +236,10 @@ class KeycloakUserSource extends BaseUserSource
 
         // Abort on any error: with a partial list, missing users would be deactivated
         $start = microtime(true);
-        $keycloakUsers = Yii::createObject(KeycloakApi::class)->getAllUsers($isComplete);
+        $keycloakUsers = Yii::createObject(KeycloakApi::class)->getAllUsers(
+            $isComplete,
+            $onProgress !== null ? static fn($listedCount, $totalCount, $pass) => $onProgress(self::PROGRESS_LIST, $listedCount, $totalCount, $pass) : null,
+        );
         $this->lastSyncListDuration = microtime(true) - $start;
         if ($keycloakUsers === null) {
             Yii::error('Users sync aborted: the Keycloak users could not be retrieved', 'auth-keycloak');
@@ -254,7 +266,10 @@ class KeycloakUserSource extends BaseUserSource
         // Skipped or failed Keycloak users, with the reason
         $notSynced = [];
 
-        foreach ($keycloakUsers as $keycloakUser) {
+        foreach ($keycloakUsers as $i => $keycloakUser) {
+            if ($onProgress !== null && $i % 10 === 0) {
+                $onProgress(self::PROGRESS_SYNC, $i, count($keycloakUsers), 1);
+            }
             if (empty($keycloakUser['id'])) {
                 continue;
             }
@@ -302,6 +317,10 @@ class KeycloakUserSource extends BaseUserSource
             $this->addAuth($user, $attributes['id']);
             $syncedUserIds[$user->id] = true;
             $results[self::SYNC_CREATED]++;
+        }
+
+        if ($onProgress !== null) {
+            $onProgress(self::PROGRESS_SYNC, count($keycloakUsers), count($keycloakUsers), 1);
         }
 
         // Deactivate users removed from Keycloak, only if all the Keycloak users have been listed

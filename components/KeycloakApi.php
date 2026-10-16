@@ -433,9 +433,10 @@ class KeycloakApi extends Component
      * @param string $errorMessage
      * @param int|null $total number of results: if set, pages are requested up to it, even after a page having
      * less than the maximum results (with a user federation, Keycloak may return such pages before the last one)
+     * @param callable|null $onPage called after each page: function (int $resultsCount)
      * @return array|null all the results, null if an error occurred
      */
-    private function getAllPages(callable $request, string $errorMessage, ?int $total = null): ?array
+    private function getAllPages(callable $request, string $errorMessage, ?int $total = null, ?callable $onPage = null): ?array
     {
         $first = 0;
         $results = [];
@@ -451,6 +452,9 @@ class KeycloakApi extends Component
             }
             array_push($results, ...array_values($page));
             $first += self::MAX_USERS_RESULT;
+            if ($onPage !== null) {
+                $onPage(count($results));
+            }
         } while ($total !== null ? $first < $total : count($page) === self::MAX_USERS_RESULT);
 
         return $results;
@@ -744,9 +748,10 @@ class KeycloakApi extends Component
      *
      * @param bool|null $isComplete set to false if the list is still incomplete after all passes
      * (or the number of users could not be retrieved)
+     * @param callable|null $onProgress called after each page: function (int $listedCount, ?int $totalCount, int $pass)
      * @return array|null null if an error occurred
      */
-    public function getAllUsers(?bool &$isComplete = null): ?array
+    public function getAllUsers(?bool &$isComplete = null, ?callable $onProgress = null): ?array
     {
         $isComplete = false;
         if (!$this->isConnected()) {
@@ -756,11 +761,15 @@ class KeycloakApi extends Component
         $count = $this->getUserCount();
         $users = [];
         for ($pass = 1; $pass <= self::MAX_USERS_LIST_PASSES; $pass++) {
+            if ($onProgress !== null) {
+                $onProgress(count($users), $count, $pass);
+            }
             // Return null (not a partial list) so that callers do not consider missing users as removed from Keycloak
             $pageUsers = $this->getAllPages(
                 fn($first, $max) => $this->api->getUsers(['first' => $first, 'max' => $max]),
                 'Error retrieving users from Keycloak',
                 $count,
+                $onProgress !== null ? static fn($listedCount) => $onProgress($listedCount, $count, $pass) : null,
             );
             if ($pageUsers === null) {
                 return null;
