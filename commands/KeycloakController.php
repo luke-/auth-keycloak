@@ -104,8 +104,15 @@ class KeycloakController extends Controller
         }
 
         $start = microtime(true);
+        $progressStep = null;
         $job = new GroupsFullSync();
+        $job->onProgress = function (int $done, int $total) use (&$progressStep) {
+            $this->showProgress($progressStep, 'members', 'Retrieving the members of the Keycloak groups: ', $done, $total);
+        };
         $job->run();
+        if ($progressStep !== null) {
+            Console::endProgress();
+        }
         if ($job->isCompleted === null) {
             $this->stderr("Error: the groups sync is disabled.\n\n", Console::FG_RED);
             return ExitCode::UNSPECIFIED_ERROR;

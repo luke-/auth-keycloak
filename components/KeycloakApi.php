@@ -435,9 +435,11 @@ class KeycloakApi extends Component
      * less than the maximum results (with a user federation, Keycloak may return such pages before the last one)
      * @param callable|null $onPage called after each page: function (int $resultsCount)
      * @param int $pageSize
+     * @param bool $untilEmptyPage if no total is given, request pages until an empty one (instead of until a page having
+     * less than the maximum results), as Keycloak may return such pages before the last one with a user federation
      * @return array|null all the results, null if an error occurred
      */
-    private function getAllPages(callable $request, string $errorMessage, ?int $total = null, ?callable $onPage = null, int $pageSize = self::MAX_USERS_RESULT): ?array
+    private function getAllPages(callable $request, string $errorMessage, ?int $total = null, ?callable $onPage = null, int $pageSize = self::MAX_USERS_RESULT, bool $untilEmptyPage = false): ?array
     {
         $first = 0;
         $results = [];
@@ -456,7 +458,7 @@ class KeycloakApi extends Component
             if ($onPage !== null) {
                 $onPage(count($results));
             }
-        } while ($total !== null ? $first < $total : count($page) === $pageSize);
+        } while ($total !== null ? $first < $total : ($untilEmptyPage ? $page !== [] : count($page) === $pageSize));
 
         return $results;
     }
@@ -830,16 +832,22 @@ class KeycloakApi extends Component
         if (!$this->isConnected()) {
             return null;
         }
+        /** @var Module $module */
+        $module = Yii::$app->getModule('auth-keycloak');
         // Return null (not a partial list) so that callers do not consider missing members as removed from the group
         $members = $this->getAllPages(
             fn($first, $max) => $this->api->getGroupMembers(['id' => $groupId, 'first' => $first, 'max' => $max]),
             'Error retrieving members of the Keycloak group ID ' . $groupId,
+            null,
+            null,
+            max(1, (int)$module->usersListPageSize),
+            true,
         );
         if ($members === null) {
             return null;
         }
 
-        return array_values(array_filter(array_map(static fn($member) => $member['id'] ?? null, $members)));
+        return array_values(array_unique(array_filter(array_map(static fn($member) => $member['id'] ?? null, $members))));
     }
 
     /**

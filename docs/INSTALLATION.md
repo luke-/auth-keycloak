@@ -139,7 +139,7 @@ return [
             'apiTimeout' => 10,
             // Same, for requests from the console: background jobs such as the users sync, and console commands (default: 600, 0 to wait indefinitely)
             'apiSyncTimeout' => 600,
-            // Number of users per request when listing all the Keycloak users (default: 500). With a user federation (e.g. LDAP), larger pages give a more complete list, but each request takes longer
+            // Number of users per request when listing all the Keycloak users or the members of a group (default: 500). With a user federation (e.g. LDAP), larger pages give a more complete list, but each request takes longer
             'usersListPageSize' => 500,
             // Maximum duration in seconds to connect to the Keycloak API (default: 5, 0 to wait indefinitely)
             'apiConnectTimeout' => 5,

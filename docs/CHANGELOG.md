@@ -26,7 +26,9 @@ Changelog
 - Fix: The users sync stopped listing the Keycloak users at the first page having less than 100 users, which Keycloak may return before the last page with a user federation (e.g. LDAP): pages are now requested up to the number of users of the realm
 - Enh: The Keycloak users are listed by pages of 500 users instead of 100 (`usersListPageSize` module property), as Keycloak may skip users at the page boundaries with a user federation
 - Enh: The users sync compares the listed Keycloak users with the number of users of the realm and lists them again (up to 3 times, merging the lists) if some are missing, as Keycloak may return an incomplete list with a user federation (e.g. LDAP); if the list remains incomplete, no HumHub user is deactivated
-- Enh: Add the console command `php yii auth-keycloak/sync-groups` running the groups sync and displaying the created, linked and not created groups
+- Fix: The groups sync retrieved the members of all the Keycloak groups before creating any group: with many groups and a slow Keycloak, no group was created; the members are now retrieved while creating the groups
+- Fix: With a user federation (e.g. LDAP), the members of a Keycloak group could be incompletely retrieved (and then removed from the HumHub group), as Keycloak may return a page having less than the maximum results before the last one
+- Enh: Add the console command `php yii auth-keycloak/sync-groups` running the groups sync and displaying its progress, the duration and the created, linked and not created groups
 - Fix: The groups sync failed with an uncaught exception when the members of a Keycloak group could not be retrieved (e.g. timeout)
 - Fix: The `show-user` console command did not find users by a Keycloak ID that is not a UUID (e.g. users of a user federation without import)
 
