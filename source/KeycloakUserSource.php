@@ -56,6 +56,11 @@ class KeycloakUserSource extends BaseUserSource
      */
     public $lastSyncIsComplete;
 
+    /**
+     * @var float|null duration in seconds of the retrieval of the Keycloak users by the last {@see syncUsers()}
+     */
+    public $lastSyncListDuration;
+
     public function init()
     {
         parent::init();
@@ -221,7 +226,9 @@ class KeycloakUserSource extends BaseUserSource
         }
 
         // Abort on any error: with a partial list, missing users would be deactivated
+        $start = microtime(true);
         $keycloakUsers = Yii::createObject(KeycloakApi::class)->getAllUsers($isComplete);
+        $this->lastSyncListDuration = microtime(true) - $start;
         if ($keycloakUsers === null) {
             Yii::error('Users sync aborted: the Keycloak users could not be retrieved', 'auth-keycloak');
             return null;
@@ -319,7 +326,7 @@ class KeycloakUserSource extends BaseUserSource
             );
         }
 
-        Yii::info('Users sync done: ' . VarDumper::dumpAsString($results), 'auth-keycloak');
+        Yii::info('Users sync done in ' . round(microtime(true) - $start) . ' s (retrieving the Keycloak users: ' . round($this->lastSyncListDuration) . ' s): ' . VarDumper::dumpAsString($results), 'auth-keycloak');
 
         return $results;
     }

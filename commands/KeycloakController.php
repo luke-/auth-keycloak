@@ -54,6 +54,7 @@ class KeycloakController extends Controller
 
         /** @var KeycloakUserSource $source */
         $source = $collection->getUserSource(KeycloakUserSource::SOURCE_ID);
+        $start = microtime(true);
         $results = $source->syncUsers();
         if ($results === null) {
             $this->stderr("Error: the sync could not run, see the error log.\n\n", Console::FG_RED);
@@ -74,6 +75,8 @@ class KeycloakController extends Controller
             . ', deactivated: ' . $counts[User::STATUS_DEACTIVATED]
             . ', awaiting approval: ' . $counts[User::STATUS_NEED_APPROVAL]
             . ', soft deleted: ' . $counts[User::STATUS_SOFT_DELETED] . ")\n");
+        $this->stdout("\nDuration: " . $this->formatDuration(microtime(true) - $start)
+            . ' (retrieving the Keycloak users: ' . $this->formatDuration($source->lastSyncListDuration) . ")\n");
         $this->stdout("\nKeycloak users sync completed!\n\n", Console::FG_GREEN);
 
         return ExitCode::OK;
@@ -91,6 +94,7 @@ class KeycloakController extends Controller
             return ExitCode::UNSPECIFIED_ERROR;
         }
 
+        $start = microtime(true);
         $job = new GroupsFullSync();
         $job->run();
         if ($job->isCompleted === null) {
@@ -106,6 +110,7 @@ class KeycloakController extends Controller
             $this->stdout($label . ': ' . count($job->results[$result])
                 . ($job->results[$result] !== [] ? ' (' . implode(', ', $job->results[$result]) . ')' : '') . "\n");
         }
+        $this->stdout("\nDuration: " . $this->formatDuration(microtime(true) - $start) . "\n");
         if (!$job->isCompleted) {
             $this->stderr("\nError: the sync was aborted, see the error log.\n\n", Console::FG_RED);
             return ExitCode::UNSPECIFIED_ERROR;
@@ -241,6 +246,16 @@ class KeycloakController extends Controller
         $this->stdout("Values read from the Keycloak API. On sign in, the claims sent by Keycloak depend on the mappers of the client scopes.\n\n");
 
         return ExitCode::OK;
+    }
+
+    private function formatDuration(?float $seconds): string
+    {
+        if ($seconds === null) {
+            return '---';
+        }
+        return $seconds < 60
+            ? round($seconds, 1) . ' s'
+            : floor($seconds / 60) . ' min ' . round(fmod($seconds, 60)) . ' s';
     }
 
     private function formatValue($value): string

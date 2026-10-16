@@ -22,7 +22,8 @@ Changelog
 - Enh: Requests to the Keycloak API from the console (users and groups sync, console commands) use a longer timeout (`apiSyncTimeout` module property, default: 10 minutes), as listing the users can exceed the 10 seconds of `apiTimeout`
 - Enh: The users sync logs the skipped and failed Keycloak users (ID, username, first and last name) with the reason
 - Chg: The groups sync creates on HumHub only the Keycloak groups having members with a HumHub account (or a subgroup having such members); the created groups are hidden in the directory and not selectable at registration
-- Enh: The number of HumHub users of the Keycloak user source (by status) is displayed in the module settings and by the `sync-users` console command (with the number of Keycloak users)
+- Enh: The number of HumHub users of the Keycloak user source (by status) is displayed in the module settings and by the `sync-users` console command (with the number of Keycloak users and the duration)
+- Fix: The users sync stopped listing the Keycloak users at the first page having less than 100 users, which Keycloak may return before the last page with a user federation (e.g. LDAP): pages are now requested up to the number of users of the realm
 - Enh: The users sync compares the listed Keycloak users with the number of users of the realm and lists them again (up to 3 times, merging the lists) if some are missing, as Keycloak may return an incomplete list with a user federation (e.g. LDAP); if the list remains incomplete, no HumHub user is deactivated
 - Enh: Add the console command `php yii auth-keycloak/sync-groups` running the groups sync and displaying the created, linked and not created groups
 - Fix: The groups sync failed with an uncaught exception when the members of a Keycloak group could not be retrieved (e.g. timeout)

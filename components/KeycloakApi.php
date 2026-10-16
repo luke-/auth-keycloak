@@ -431,9 +431,11 @@ class KeycloakApi extends Component
     /**
      * @param callable $request function (int $first, int $max): array
      * @param string $errorMessage
+     * @param int|null $total number of results: if set, pages are requested up to it, even after a page having
+     * less than the maximum results (with a user federation, Keycloak may return such pages before the last one)
      * @return array|null all the results, null if an error occurred
      */
-    private function getAllPages(callable $request, string $errorMessage): ?array
+    private function getAllPages(callable $request, string $errorMessage, ?int $total = null): ?array
     {
         $first = 0;
         $results = [];
@@ -449,7 +451,7 @@ class KeycloakApi extends Component
             }
             array_push($results, ...array_values($page));
             $first += self::MAX_USERS_RESULT;
-        } while (count($page) === self::MAX_USERS_RESULT);
+        } while ($total !== null ? $first < $total : count($page) === self::MAX_USERS_RESULT);
 
         return $results;
     }
@@ -735,9 +737,10 @@ class KeycloakApi extends Component
     /**
      * Returns all users of the realm (Keycloak user representations).
      *
-     * With a user federation (e.g. LDAP), Keycloak may return a different, incomplete list on each request
-     * (users being imported while listing). So the list is compared to the number of users of the realm,
-     * and listed again (merging the lists) until it is complete, at most {@see MAX_USERS_LIST_PASSES} times.
+     * With a user federation (e.g. LDAP), Keycloak may return pages having less than the maximum results before
+     * the last one, and a different list on each request. So the pages are requested up to the number of users
+     * of the realm, and the list is requested again (merging the lists) until it is complete,
+     * at most {@see MAX_USERS_LIST_PASSES} times.
      *
      * @param bool|null $isComplete set to false if the list is still incomplete after all passes
      * (or the number of users could not be retrieved)
@@ -750,12 +753,14 @@ class KeycloakApi extends Component
             return null;
         }
 
+        $count = $this->getUserCount();
         $users = [];
         for ($pass = 1; $pass <= self::MAX_USERS_LIST_PASSES; $pass++) {
             // Return null (not a partial list) so that callers do not consider missing users as removed from Keycloak
             $pageUsers = $this->getAllPages(
                 fn($first, $max) => $this->api->getUsers(['first' => $first, 'max' => $max]),
                 'Error retrieving users from Keycloak',
+                $count,
             );
             if ($pageUsers === null) {
                 return null;
@@ -767,7 +772,6 @@ class KeycloakApi extends Component
                 }
             }
 
-            $count = $this->getUserCount();
             if ($count === null) {
                 break;
             }
