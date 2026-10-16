@@ -85,14 +85,13 @@ $requirements = file_exists($requirementsFile) ? (include $module->basePath . '/
               // ConfigController::actionIndex()). ?>
         <?= $form->field($model, 'clientSecret')->textInput(['type' => 'password', 'autocomplete' => 'new-password']) ?>
         <?= $form->field($model, 'redirectUri')->textInput(['readonly' => true]) ?>
-        <?= $form->field($model, 'usernameMapper') ?>
+        <?= $form->field($model, 'attributeMapping')->textarea(['rows' => 4, 'placeholder' => "username=preferred_username\nphone_work=phoneNumber\ncity=locality"]) ?>
 
         <?= $form->beginCollapsibleFields(Yii::t('AuthKeycloakModule.base', 'Advanced settings (optional)')) ?>
         <?= $form->field($model, 'title') ?>
         <?= $form->field($model, 'hideRegistrationUsernameField')->checkbox() ?>
         <?= $form->field($model, 'hideAdminUserEditPassword')->checkbox() ?>
         <?= $form->field($model, 'trustOnlyVerifiedEmail')->checkbox() ?>
-        <?= $form->field($model, 'attributeMapping')->textarea(['rows' => 4, 'placeholder' => "phone_work=phoneNumber\ncity=locality"]) ?>
         <?= $form->endCollapsibleFields(); ?>
 
         <?= $form->beginCollapsibleFields(Yii::t('AuthKeycloakModule.base', 'Advanced settings requiring access to the Keycloak API (optional)')) ?>

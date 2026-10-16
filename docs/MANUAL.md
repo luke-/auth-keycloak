@@ -15,22 +15,28 @@ On the first sign-in with Keycloak:
 
 Users signed in with Keycloak are managed by the Keycloak user source: depending on the settings, some of their profile fields (username, email, first name, last name, mapped profile fields) cannot be changed on HumHub, and the HumHub password page is hidden.
 
-## Profile fields mapping
+## Attribute mapping
 
-**Profile fields mapping** (in "Advanced settings") maps Keycloak user attributes to HumHub profile fields, one mapping per line:
+**Attribute mapping** maps Keycloak user attributes to the HumHub username and profile fields, one mapping per line:
 
 ```
+username=preferred_username
 phone_work=phoneNumber
 city=locality
 firstname=given_name
 ```
 
-The left side is the internal name of a HumHub profile field (`Administration -> Users -> Profiles`), the right side is the Keycloak attribute:
+The left side is `username` or the internal name of a HumHub profile field (`Administration -> Users -> Profiles`), the right side is the Keycloak attribute:
 
 - On sign in, it is the claim name sent by Keycloak (userinfo). On Keycloak, add a mapper of type "User Attribute" to the client's dedicated scope (`Clients -> <client> -> Client scopes -> <client>-dedicated`), with the same name for "User Attribute" and "Token Claim Name", and "Add to userinfo" enabled. Do not use dots in the claim name: Keycloak would send a nested claim.
 - For the users sync, it is the name of the Keycloak user attribute. The standard claims `given_name`, `family_name`, `email`, `preferred_username` and `sub` can also be used.
 
-Mapped fields are filled when the account is created, updated on each sign in and by the users sync, and cannot be changed on HumHub anymore (for accounts of the Keycloak user source). The first and last names are mapped by default (`given_name` and `family_name`), a mapping line overrides them. If a Keycloak attribute has several values, only the first one is used. The users sync empties a mapped field if the attribute was removed on Keycloak.
+Default mappings, overridden by a mapping line: `username=sub` (Keycloak ID), `firstname=given_name`, `lastname=family_name`.
+
+Mapped profile fields are filled when the account is created, updated on each sign in and by the users sync, and cannot be changed on HumHub anymore (for accounts of the Keycloak user source).
+
+The `username` line only sets the claim used for the username, e.g. `username=preferred_username` for the Keycloak username. The username is set on account creation, and updated (and locked on HumHub) only if **Update user's username on HumHub when changed on Keycloak** is enabled. It replaces the former "Username mapper" setting, migrated automatically on update.
+ If a Keycloak attribute has several values, only the first one is used. The users sync empties a mapped field if the attribute was removed on Keycloak.
 
 To display all the attributes of a Keycloak user and the resulting HumHub values, run `php protected/yii auth-keycloak/show-user <user>` (see [console commands](#console-commands)).
 
@@ -40,7 +46,7 @@ If **Fetch/Update users automatically** is enabled (requires the API access, see
 
 - **Created**: a HumHub account is created for each enabled Keycloak user not yet linked to a HumHub account, without admin approval.
   If the username is already taken on HumHub, a numeric suffix is added (e.g. `john.doe_2`).
-- **Updated**: first name and last name, the fields of the [profile fields mapping](#profile-fields-mapping), and the username and email if **Update user's username/email on HumHub when changed on Keycloak** are enabled.
+- **Updated**: first name and last name, the profile fields of the [attribute mapping](#attribute-mapping), and the username and email if **Update user's username/email on HumHub when changed on Keycloak** are enabled.
   These fields cannot be changed on HumHub anymore.
 - **Deactivated**: HumHub accounts of Keycloak users disabled or removed on Keycloak.
 - **Re-enabled**: deactivated HumHub accounts of Keycloak users enabled again on Keycloak.
@@ -70,7 +76,7 @@ php protected/yii auth-keycloak/sync-users
 # List the Keycloak users and their linked HumHub account
 php protected/yii auth-keycloak/list-users
 
-# Show all the attributes of a Keycloak user and the resulting HumHub attributes (profile fields mapping)
+# Show all the attributes of a Keycloak user and the resulting HumHub attributes (attribute mapping)
 # <user>: HumHub username or email, or Keycloak ID, username or email
 php protected/yii auth-keycloak/show-user <user>
 ```

@@ -35,7 +35,7 @@ On the module configuration page, enter:
 - **Base URL**: e.g. `https://sso.example.com` (or `https://sso.example.com/auth` for older Keycloak versions)
 - **Realm name**
 - **Client ID** and **Client secret** of the client created above
-- **Username mapper**: `preferred_username` (Keycloak username), `sub` (Keycloak ID) or a custom token claim
+- **Attribute mapping** (optional): e.g. `username=preferred_username` to use the Keycloak username instead of the Keycloak ID (`sub`, default) as HumHub username, and the profile fields to fill from Keycloak (see [MANUAL.md](MANUAL.md#attribute-mapping))
 
 Enable the module and save. The "Keycloak" button now appears on the login page.
 

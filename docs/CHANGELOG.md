@@ -7,7 +7,8 @@ Changelog
 - Enh: Add an option for a read-only Keycloak API user (`apiReadOnly`): settings requiring write access to Keycloak are disabled
 - Enh: Add an option to access the Keycloak API with the service account of the client (`apiAuthMethod`, "client_credentials" grant) instead of an admin user, so that "Direct access grants" can stay disabled on the client
 - Enh: When creating a user from Keycloak, an already taken username gets a numeric suffix instead of failing
-- Enh: Add a profile fields mapping setting (`attributeMapping`, one `humhub-profile-field=keycloak-attribute` per line): mapped fields are filled on account creation, updated on each sign in and by the users sync, and read-only on HumHub
+- Enh: Add an attribute mapping setting (`attributeMapping`, one `humhub-profile-field=keycloak-attribute` per line): mapped profile fields are filled on account creation, updated on each sign in and by the users sync, and read-only on HumHub
+- Chg: The "Username mapper" setting is replaced by a `username=<claim>` line of the attribute mapping (default: `sub`); existing settings are migrated
 - Enh: Add the console command `php yii auth-keycloak/show-user <user>` displaying all the attributes of a Keycloak user and the resulting HumHub attributes
 - Fix: The "change password" page was accessible by URL when the option was disabled
 

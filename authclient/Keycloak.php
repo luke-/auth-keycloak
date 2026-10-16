@@ -294,16 +294,18 @@ class Keycloak extends OpenIdConnect
         $attributes = $this->normalizeUserAttributes(array_filter($claims, static fn($value) => $value !== null));
         $attributes = array_filter($attributes, static fn($value) => $value !== null && $value !== '');
 
-        // The API returns all the user attributes: a mapped attribute that is missing has been removed on Keycloak
+        // The API returns all the user attributes: a mapped profile field that is missing has been removed on Keycloak
         foreach (array_keys($this->getAttributeMapping()) as $field) {
-            $attributes[$field] ??= '';
+            if ($field !== 'username') {
+                $attributes[$field] ??= '';
+            }
         }
 
         return $attributes;
     }
 
     /**
-     * @return array HumHub profile field => Keycloak claim name, from the "Profile fields mapping" setting
+     * @return array HumHub profile field (or `username`) => Keycloak claim name, from the "Attribute mapping" setting
      */
     public function getAttributeMapping(): array
     {
@@ -352,15 +354,12 @@ class Keycloak extends OpenIdConnect
 
     protected function defaultNormalizeUserAttributeMap()
     {
-        /** @var Module $module */
-        $module = Yii::$app->getModule('auth-keycloak');
-
         return array_merge([
+            'username' => 'sub',
             'firstname' => 'given_name',
             'lastname' => 'family_name',
         ], $this->getAttributeMapping(), [
             'id' => 'sub',
-            'username' => $module->settings->get('usernameMapper'),
             'email' => 'email',
         ]);
     }

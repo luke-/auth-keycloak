@@ -79,6 +79,7 @@ class KeycloakUserSource extends BaseUserSource
      *
      * With the `syncUsers` setting, the first and last names are also synced (hourly and on sign in).
      * The profile fields of the `attributeMapping` setting are always synced (on sign in and by the users sync).
+     * A `username` mapping only sets the claim used for the username, which is synced only with `updateHumhubUsernameFromBrokerUsername`.
      */
     public function getManagedAttributes(): array
     {
@@ -99,7 +100,9 @@ class KeycloakUserSource extends BaseUserSource
             $attrs[] = 'lastname';
         }
         foreach (array_keys(ConfigureForm::parseAttributeMapping($module->settings->get('attributeMapping'))) as $field) {
-            $attrs[] = $field;
+            if ($field !== 'username') {
+                $attrs[] = $field;
+            }
         }
 
         return array_values(array_unique($attrs));
