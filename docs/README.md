@@ -16,7 +16,7 @@ A new button "Keycloak" (which can be renamed) will appear on the login page.
 - Users' groups and email synchronization between Keycloak and HumHub in both directions (2):
     - HumHub to Keycloak sync is done in real time
     - Keycloak to HumHub sync is done once a day
-    - Keycloak subgroups are not synced
+    - HumHub subgroups are synced with the first level of Keycloak subgroups
 
 (1) Allows removing user sessions automatically when signing out from Keycloak (via a websocket).
 

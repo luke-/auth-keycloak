@@ -297,9 +297,10 @@ class Events
      */
     public static function onModelGroupAfterDelete($event)
     {
+        $config = new ConfigureForm();
         if (
             empty($event->sender)
-            || !(new ConfigureForm())->syncHumhubGroupsToKeycloak(true)
+            || !$config->syncHumhubGroupsToKeycloak()
         ) {
             return;
         }
@@ -307,7 +308,12 @@ class Events
         /** @var Group $group */
         $group = $event->sender;
 
-        (new KeycloakApi())->removeGroup($group->keycloak_id);
+        $keycloakApi = new KeycloakApi();
+        // HumHub moves the subgroups of a deleted group to the top level
+        $keycloakApi->moveSubgroupsToTopLevel($group->keycloak_id);
+        if ($config->syncHumhubGroupsToKeycloak(true)) {
+            $keycloakApi->removeGroup($group->keycloak_id);
+        }
     }
 
 
@@ -331,10 +337,13 @@ class Events
         // Get changed attributes
         $changedAttributes = $event->changedAttributes;
 
+        $keycloakApi = new KeycloakApi();
         // If name has changed
         if (array_key_exists('name', $changedAttributes)) {
-            (new KeycloakApi())->renameGroup($group->id);
+            $keycloakApi->renameGroup($group->id);
         }
+        // The parent group is updated without triggering any event, so the hierarchy is checked on each update
+        $keycloakApi->syncGroupHierarchy($group->id);
     }
 
 

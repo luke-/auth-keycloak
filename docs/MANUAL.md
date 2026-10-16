@@ -83,13 +83,22 @@ php protected/yii auth-keycloak/show-user <user>
 
 ## Groups sync
 
-**Synchronize groups and their members** synchronizes the HumHub groups with the Keycloak groups having the same name:
+**Groups sync** synchronizes the HumHub groups and their members with the Keycloak groups having the same name. It does not create or update user accounts (see [Users sync](#users-sync)), and only members connected with Keycloak are synced: local members of a HumHub group are never removed.
 
-- **Sync HumHub towards Keycloak**: done in real time. When a user is added to a HumHub group, the group is created on Keycloak if it does not exist, and the user is added to it.
-- **Sync Keycloak towards HumHub**: done once a day, and on each sign-in for the signed-in user.
+- **Sync HumHub towards Keycloak**: done in real time. Groups created, renamed, moved, or deleted on HumHub, and members added or removed, are updated on Keycloak (groups are created on Keycloak if they do not exist). On the first sync (after saving the module configuration), all HumHub groups and their members are added to Keycloak.
+- **Sync Keycloak towards HumHub**: done once a day, and on each sign-in for the groups of the signed-in user (members are only added on sign-in). Groups created, renamed, moved, or deleted on Keycloak, and members added or removed, are updated on HumHub.
 - **Sync both ways**: both of the above.
 
-Variants "but no removal on Keycloak/HumHub" only add memberships and never remove them on the given side. Keycloak subgroups are not synced.
+Variants "but no removal on Keycloak/HumHub" never remove groups or members on the given side.
+
+Subgroups: the Keycloak top-level groups are HumHub groups, and their subgroups are HumHub subgroups. As HumHub supports only one level of subgroups, deeper Keycloak groups are ignored. A group is linked to the group having the same name and the same parent on the other side; once linked, renaming or moving it keeps the link.
+
+Deleting groups:
+
+- When a group is deleted on Keycloak, its HumHub group is deleted (if removal on HumHub is enabled). The administrators group and protected groups are never deleted, only unlinked from Keycloak; a warning is logged.
+- When a group is deleted on HumHub, its Keycloak group is deleted (if removal on Keycloak is enabled). Its subgroups become top-level groups on Keycloak, as on HumHub.
+
+The administrators group is synced like the other groups: users added to the Keycloak group having its name become HumHub administrators.
 
 ## Read-only API
 

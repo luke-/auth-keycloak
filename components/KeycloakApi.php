@@ -21,7 +21,6 @@ use Keycloak\Admin\KeycloakClient;
 use Keycloak\Admin\TokenStorages\RuntimeTokenStorage;
 use Yii;
 use yii\base\Component;
-use yii\helpers\ArrayHelper;
 
 class KeycloakApi extends Component
 {
@@ -163,11 +162,11 @@ class KeycloakApi extends Component
             return false;
         }
 
-        // Check if Keycloak group exists
-        if (($groupKeycloak = GroupKeycloak::findOne($groupId)) === null) {
-            // Try creating it
+        // Check if the HumHub group is linked to a Keycloak group
+        if (($groupKeycloak = GroupKeycloak::getKeycloakGroup($groupId)) === null) {
+            // Try linking or creating it
             if ($createGroupIfNotExists && $this->linkSameGroupNameOrCreateGroup($groupId)) {
-                $groupKeycloak = GroupKeycloak::findOne($groupId);
+                $groupKeycloak = GroupKeycloak::getKeycloakGroup($groupId);
             } else {
                 return false;
             }
@@ -181,6 +180,10 @@ class KeycloakApi extends Component
     }
 
     /**
+     * Links the HumHub group to the Keycloak group having the same name and the same parent, or creates it on Keycloak.
+     * The Keycloak group of a HumHub subgroup is a subgroup of the Keycloak group linked to its parent group
+     * (which is linked or created first).
+     *
      * @param int $groupId
      * @return bool
      */
@@ -189,59 +192,260 @@ class KeycloakApi extends Component
         if (
             !$this->isConnected()
             || ($groupKeycloak = GroupKeycloak::findOne($groupId)) === null
+            || ($keycloakGroups = $this->getGroupsTree()) === null
         ) {
             return false;
         }
 
-        // Check if group with same name already exists
-        if (($keycloakGroupId = $this->getGroupIdFromName($groupKeycloak->name)) !== null) {
-            $groupKeycloak->keycloak_id = $keycloakGroupId;
-            return $groupKeycloak->save();
+        // Already linked
+        if ($groupKeycloak->keycloak_id !== null && isset($keycloakGroups[$groupKeycloak->keycloak_id])) {
+            return true;
         }
 
-        // Try creating group
-        $result = $this->api->createGroup(['name' => $groupKeycloak->name]);
+        $parentKeycloakId = null;
+        if ($groupKeycloak->parent_group_id !== null) {
+            if (!$this->linkSameGroupNameOrCreateGroup($groupKeycloak->parent_group_id)) {
+                return false;
+            }
+            $parentKeycloakId = GroupKeycloak::getKeycloakGroup($groupKeycloak->parent_group_id)?->keycloak_id;
+            // The parent group may have been created on Keycloak
+            if ($parentKeycloakId === null || ($keycloakGroups = $this->getGroupsTree()) === null) {
+                return false;
+            }
+        }
 
-        if ($this->hasError($result, 'Error creating group ID ' . $groupKeycloak->id)) {
+        // Check if a group with the same name and parent already exists, otherwise create it
+        $keycloakGroupId = $this->findGroupId($keycloakGroups, $groupKeycloak->name, $parentKeycloakId);
+        if ($keycloakGroupId === null) {
+            $result = $parentKeycloakId === null
+                ? $this->api->createGroup(['name' => $groupKeycloak->name])
+                : $this->api->createChildGroup(['groupId' => $parentKeycloakId, 'name' => $groupKeycloak->name]);
+            if ($this->hasError($result, 'Error creating group ID ' . $groupKeycloak->id)) {
+                return false;
+            }
+            // Keycloak returns the created group only for subgroups
+            $keycloakGroupId = $result['id'] ?? $this->findGroupId($this->getGroupsTree() ?? [], $groupKeycloak->name, $parentKeycloakId);
+            if ($keycloakGroupId === null) {
+                return false;
+            }
+        }
+
+        // A Keycloak group can be linked to only one HumHub group (HumHub group names are not unique)
+        if (GroupKeycloak::find()->where(['keycloak_id' => $keycloakGroupId])->andWhere(['!=', 'id', $groupKeycloak->id])->exists()) {
+            Yii::warning('Could not link the group ID ' . $groupKeycloak->id . ' to the Keycloak group ' . $keycloakGroupId . ', already linked to another group', 'auth-keycloak');
             return false;
         }
 
-        // Get group ID
-        $keycloakGroupId = $this->getGroupIdFromName($groupKeycloak->name);
-
-        $groupKeycloak->keycloak_id = $keycloakGroupId;
-        return $groupKeycloak->save();
+        // No save(), as the group events would sync the group to Keycloak again
+        $groupKeycloak->updateAttributes(['keycloak_id' => $keycloakGroupId]);
+        return true;
     }
 
     /**
-     * @param string $groupName
+     * Moves the Keycloak groups so that their parent matches the HumHub parent group, for this group and its current
+     * and former subgroups (the HumHub admin updates the parent groups without triggering any event)
+     *
+     * @param int $groupId
+     * @return bool
+     */
+    public function syncGroupHierarchy($groupId): bool
+    {
+        if (
+            !$this->isConnected()
+            || ($groupKeycloak = GroupKeycloak::getKeycloakGroup($groupId)) === null
+            || ($keycloakGroups = $this->getGroupsTree()) === null
+        ) {
+            return false;
+        }
+
+        $keycloakGroupIds = array_merge(
+            [$groupKeycloak->keycloak_id],
+            array_keys(array_filter($keycloakGroups, static fn($keycloakGroup) => $keycloakGroup['parentId'] === $groupKeycloak->keycloak_id)),
+        );
+        $groups = GroupKeycloak::find()
+            ->where(['keycloak_id' => $keycloakGroupIds])
+            ->orWhere(['and', ['parent_group_id' => $groupKeycloak->id], ['not', ['keycloak_id' => null]]])
+            ->all();
+        // Top level groups first: a group can become the parent of other groups only once on the top level
+        usort($groups, static fn($a, $b) => ($a->parent_group_id !== null) <=> ($b->parent_group_id !== null));
+
+        $success = true;
+        foreach ($groups as $group) {
+            $success = $this->moveGroup($group, $keycloakGroups) && $success;
+        }
+        return $success;
+    }
+
+    /**
+     * Before removing a Keycloak group (which removes its subgroups on Keycloak), moves its subgroups linked
+     * to HumHub groups to the top level, as HumHub does with the subgroups of a deleted group
+     *
+     * @param string|null $keycloakGroupId
+     * @return void
+     */
+    public function moveSubgroupsToTopLevel(?string $keycloakGroupId): void
+    {
+        if (
+            !$this->isConnected()
+            || !$keycloakGroupId
+            || ($keycloakGroups = $this->getGroupsTree()) === null
+        ) {
+            return;
+        }
+
+        $subgroupIds = array_keys(array_filter($keycloakGroups, static fn($keycloakGroup) => $keycloakGroup['parentId'] === $keycloakGroupId));
+        foreach (GroupKeycloak::find()->where(['keycloak_id' => $subgroupIds])->all() as $group) {
+            $this->moveGroup($group, $keycloakGroups);
+        }
+    }
+
+    /**
+     * Moves the Keycloak group linked to this HumHub group under the Keycloak group linked to its parent group,
+     * or to the top level if it has no parent group
+     *
+     * @param GroupKeycloak $group
+     * @param array $keycloakGroups {@see getGroupsTree()}
+     * @return bool
+     */
+    private function moveGroup(GroupKeycloak $group, array $keycloakGroups): bool
+    {
+        // Groups deeper than the subgroups level are not synced
+        if (($keycloakGroup = $keycloakGroups[$group->keycloak_id] ?? null) === null) {
+            return false;
+        }
+
+        $parentKeycloakId = null;
+        if ($group->parent_group_id !== null) {
+            $parentKeycloakId = GroupKeycloak::getKeycloakGroup($group->parent_group_id)?->keycloak_id;
+            if ($parentKeycloakId === null || !isset($keycloakGroups[$parentKeycloakId])) {
+                return false;
+            }
+        }
+        if ($keycloakGroup['parentId'] === $parentKeycloakId) {
+            return true;
+        }
+
+        // Posting an existing group moves it
+        $params = ['id' => $group->keycloak_id, 'name' => $keycloakGroup['name']];
+        $result = $parentKeycloakId === null
+            ? $this->api->createGroup($params)
+            : $this->api->createChildGroup(['groupId' => $parentKeycloakId] + $params);
+        return !$this->hasError($result, 'Error moving the Keycloak group of the group ID ' . $group->id);
+    }
+
+    /**
+     * @param array $keycloakGroups {@see getGroupsTree()}
+     * @param string $name
+     * @param string|null $parentKeycloakId
      * @return string|null
      */
-    public function getGroupIdFromName(string $groupName)
+    private function findGroupId(array $keycloakGroups, string $name, ?string $parentKeycloakId): ?string
     {
-        if (!$this->isConnected()) {
-            return null;
+        foreach ($keycloakGroups as $keycloakGroupId => $keycloakGroup) {
+            if ($keycloakGroup['name'] === $name && $keycloakGroup['parentId'] === $parentKeycloakId) {
+                return (string)$keycloakGroupId;
+            }
         }
-        return array_search($groupName, $this->getGroupsNamesById(), true) ?: null;
+        return null;
     }
 
     /**
-     * @return array|null id => name
+     * Returns the Keycloak groups synced with HumHub: the top level groups and their subgroups
+     * (HumHub supports only one level of subgroups, deeper Keycloak groups are ignored)
+     *
+     * @return array|null Keycloak group ID => ['name' => string, 'parentId' => string|null], parent groups first;
+     * null if an error occurred (never a partial list)
      */
-    public function getGroupsNamesById()
+    public function getGroupsTree(): ?array
     {
         if (!$this->isConnected()) {
             return null;
         }
-        $result = $this->api->getGroups();
-        if ($this->hasError($result, 'Error retrieving groups')) {
+
+        $topGroups = $this->getAllPages(
+            fn($first, $max) => $this->api->getGroups(['first' => $first, 'max' => $max]),
+            'Error retrieving groups from Keycloak',
+        );
+        if ($topGroups === null) {
             return null;
         }
-        if (!is_array($result)) {
-            Yii::error('Error retrieving groups from Keycloak (result is not an array)', 'auth-keycloak');
+
+        $groups = [];
+        foreach ($topGroups as $topGroup) {
+            $groups[(string)$topGroup['id']] = ['name' => (string)$topGroup['name'], 'parentId' => null];
+        }
+        foreach ($topGroups as $topGroup) {
+            // Keycloak < 23 returns the subgroups with their parent, newer versions only their number
+            $subgroups = $topGroup['subGroups'] ?? [];
+            if ($subgroups === [] && !empty($topGroup['subGroupCount'])) {
+                $subgroups = $this->getAllPages(
+                    fn($first, $max) => $this->api->getGroupChildren(['id' => $topGroup['id'], 'first' => $first, 'max' => $max]),
+                    'Error retrieving subgroups of the Keycloak group ' . $topGroup['id'],
+                );
+                if ($subgroups === null) {
+                    return null;
+                }
+            }
+            foreach ($subgroups as $subgroup) {
+                $groups[(string)$subgroup['id']] = ['name' => (string)$subgroup['name'], 'parentId' => (string)$topGroup['id']];
+            }
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @param string $keycloakGroupId
+     * @return bool|null null if an error occurred
+     */
+    public function groupExists(string $keycloakGroupId): ?bool
+    {
+        if (!$this->isConnected()) {
             return null;
         }
-        return ArrayHelper::map($result, 'id', 'name');
+        try {
+            $result = $this->api->getGroup(['id' => $keycloakGroupId]);
+        } catch (CommandClientException|CommandException $e) {
+            Yii::error('Error retrieving the Keycloak group ' . $keycloakGroupId . ': ' . $e->getMessage(), 'auth-keycloak');
+            return null;
+        }
+        if (($result['error'] ?? null) === 'Could not find group by id') {
+            return false;
+        }
+        if (
+            $this->hasError($result, 'Error retrieving the Keycloak group ' . $keycloakGroupId)
+            || !is_array($result)
+            || empty($result['id'])
+        ) {
+            return null;
+        }
+        return true;
+    }
+
+    /**
+     * @param callable $request function (int $first, int $max): array
+     * @param string $errorMessage
+     * @return array|null all the results, null if an error occurred
+     */
+    private function getAllPages(callable $request, string $errorMessage): ?array
+    {
+        $first = 0;
+        $results = [];
+        do {
+            try {
+                $page = $request($first, self::MAX_USERS_RESULT);
+            } catch (CommandClientException|CommandException $e) {
+                Yii::error($errorMessage . ': ' . $e->getMessage(), 'auth-keycloak');
+                return null;
+            }
+            if ($this->hasError($page, $errorMessage) || !is_array($page)) {
+                return null;
+            }
+            array_push($results, ...array_values($page));
+            $first += self::MAX_USERS_RESULT;
+        } while (count($page) === self::MAX_USERS_RESULT);
+
+        return $results;
     }
 
     /**

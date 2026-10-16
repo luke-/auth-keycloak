@@ -341,7 +341,7 @@ class ConfigureForm extends Model
             'apiAuthMethod' => Yii::t('AuthKeycloakModule.base', 'Keycloak API authentication'),
             'apiUsername' => Yii::t('AuthKeycloakModule.base', 'Keycloak API admin username'),
             'apiPassword' => Yii::t('AuthKeycloakModule.base', 'Keycloak API admin password'),
-            'groupsSyncMode' => Yii::t('AuthKeycloakModule.base', 'Synchronize groups and their members'),
+            'groupsSyncMode' => Yii::t('AuthKeycloakModule.base', 'Groups sync'),
             'apiReadOnly' => Yii::t('AuthKeycloakModule.base', 'The API user or service account has only read permissions'),
             'syncUsers' => Yii::t('AuthKeycloakModule.base', 'Fetch/Update users automatically'),
         ];
@@ -389,7 +389,9 @@ class ConfigureForm extends Model
             'updatedBrokerUsernameFromHumhubUsername' => Yii::t('AuthKeycloakModule.base', 'Will only work if in Keycloak\'s realm settings "Email as username" is disabled and "Edit username" is enabled.'),
             'addChangePasswordFormToAccount' => Yii::t('AuthKeycloakModule.base', 'Warning: this page does not ask for the current password (users signing in with Keycloak may not know it). Anyone with access to an open session of the user can therefore change the user\'s Keycloak password.'),
             'disableKeycloakUserOnDelete' => Yii::t('AuthKeycloakModule.base', 'The Keycloak account is disabled (not deleted) and its Keycloak sessions are removed. It can be re-enabled on Keycloak. The Keycloak API admin user is never disabled.'),
-            'groupsSyncMode' => Yii::t('AuthKeycloakModule.base', 'HumHub to Keycloak sync is done in real time. Keycloak to HumHub sync is done once a day. Keycloak subgroups are not synced.'),
+            'groupsSyncMode' => Yii::t('AuthKeycloakModule.base', 'Synchronizes the HumHub groups and subgroups, and their members, with the Keycloak groups having the same name. User accounts are not created or updated (see {syncUsers}). HumHub to Keycloak sync is done in real time. Keycloak to HumHub sync is done once a day, and for the signed-in user on each sign in. Keycloak groups deeper than the first level of subgroups are not synced.', [
+                'syncUsers' => '“' . Yii::t('AuthKeycloakModule.base', 'Fetch/Update users automatically') . '”',
+            ]),
             'apiReadOnly' => Yii::t('AuthKeycloakModule.base', 'Instead of all roles, assign only the {roles} roles of the {realmManagementClientRole} client to the API user or service account. Settings writing to Keycloak are then disabled.', [
                 'roles' => '“view-users”, “query-groups”, “view-realm”',
                 'realmManagementClientRole' => '“realm-management”',

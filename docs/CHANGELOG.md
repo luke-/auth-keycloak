@@ -9,6 +9,12 @@ Changelog
 - Enh: When creating a user from Keycloak, an already taken username gets a numeric suffix instead of failing
 - Enh: Add an attribute mapping setting (`attributeMapping`, one `humhub-profile-field=keycloak-attribute` per line): mapped profile fields are filled on account creation, updated on each sign in and by the users sync, and read-only on HumHub
 - Chg: The "Username mapper" setting is replaced by a `username=<claim>` line of the attribute mapping (default: `sub`); existing settings are migrated
+- Enh: Groups sync supports HumHub subgroups (synced with the first level of Keycloak subgroups), and groups moved to another parent on HumHub or Keycloak
+- Fix: Groups deleted on Keycloak were never deleted on HumHub; the administrators group and protected groups are now only unlinked from Keycloak
+- Fix: On the first groups sync, the members of the HumHub groups newly linked or created on Keycloak were not added to Keycloak
+- Fix: Adding a member to a HumHub group not linked to Keycloak sent an invalid request instead of linking or creating the Keycloak group
+- Fix: Several HumHub groups with the same name could be linked to the same Keycloak group
+- Chg: The "Synchronize groups and their members" setting is renamed "Groups sync"
 - Enh: Add the console command `php yii auth-keycloak/show-user <user>` displaying all the attributes of a Keycloak user and the resulting HumHub attributes
 - Fix: The "change password" page was accessible by URL when the option was disabled
 
