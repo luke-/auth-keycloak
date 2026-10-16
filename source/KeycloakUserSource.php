@@ -138,17 +138,20 @@ class KeycloakUserSource extends BaseUserSource
 
     /**
      * @param bool $requiresApproval users created by the sync are not approved by an admin, as for LDAP
+     * @param string|null $error set to the reason if the user could not be created
      */
-    private function registerUser(array $attributes, bool $requiresApproval): ?User
+    private function registerUser(array $attributes, bool $requiresApproval, ?string &$error = null): ?User
     {
         $registration = $this->buildRegistration($attributes, $requiresApproval);
         if ($registration === null) {
+            $error = 'no valid username could be resolved';
             return null;
         }
 
         $registration->getUser()->user_source = $this->getId();
 
         if (!$registration->register()) {
+            $error = $this->formatErrors($registration->getErrors());
             Yii::warning(
                 'KeycloakUserSource: could not create user. Errors: '
                 . VarDumper::dumpAsString($registration->getErrors()),
@@ -229,6 +232,8 @@ class KeycloakUserSource extends BaseUserSource
         ], 0);
         $apiUsername = mb_strtolower(trim((string)(new ConfigureForm())->apiUsername));
         $syncedUserIds = [];
+        // Skipped or failed Keycloak users, with the reason
+        $notSynced = [];
 
         foreach ($keycloakUsers as $keycloakUser) {
             if (empty($keycloakUser['id'])) {
@@ -237,28 +242,42 @@ class KeycloakUserSource extends BaseUserSource
             $attributes = $authClient->normalizeApiUserAttributes($keycloakUser);
             $isEnabledOnKeycloak = (bool)($keycloakUser['enabled'] ?? true);
 
+            $reason = null;
             $user = $this->findUser($attributes);
             if ($user !== null) {
                 $syncedUserIds[$user->id] = true;
-                $results[$this->syncUser($user, $attributes, $isEnabledOnKeycloak)]++;
+                $result = $this->syncUser($user, $attributes, $isEnabledOnKeycloak, $reason);
+                $results[$result]++;
+                if ($reason !== null) {
+                    $notSynced[$result][] = $this->formatKeycloakUser($keycloakUser) . ': ' . $reason;
+                }
                 continue;
             }
 
             // Do not create accounts for disabled users, the API user, service accounts and already used emails
-            if (
-                !$isEnabledOnKeycloak
-                || mb_strtolower((string)($keycloakUser['username'] ?? '')) === $apiUsername
-                || !empty($keycloakUser['serviceAccountClientId'])
-                || (!empty($attributes['email']) && User::find()->where(['email' => $attributes['email']])->exists())
+            if (!$isEnabledOnKeycloak) {
+                $reason = 'disabled on Keycloak';
+            } elseif (mb_strtolower((string)($keycloakUser['username'] ?? '')) === $apiUsername) {
+                $reason = 'Keycloak API user';
+            } elseif (!empty($keycloakUser['serviceAccountClientId'])) {
+                $reason = 'service account of the client "' . $keycloakUser['serviceAccountClientId'] . '"';
+            } elseif (
+                !empty($attributes['email'])
+                && ($existingUser = User::findOne(['email' => $attributes['email']])) !== null
             ) {
+                $reason = 'email ' . $attributes['email'] . ' already used by the HumHub user ' . $existingUser->username
+                    . ' (ID ' . $existingUser->id . ', user source "' . $existingUser->user_source . '")';
+            }
+            if ($reason !== null) {
                 $results[self::SYNC_SKIPPED]++;
+                $notSynced[self::SYNC_SKIPPED][] = $this->formatKeycloakUser($keycloakUser) . ': ' . $reason;
                 continue;
             }
 
-            $user = $this->registerUser($attributes, false);
+            $user = $this->registerUser($attributes, false, $reason);
             if ($user === null) {
-                Yii::warning('Users sync: could not create the HumHub user for the Keycloak user ID ' . $keycloakUser['id'], 'auth-keycloak');
                 $results[self::SYNC_FAILED]++;
+                $notSynced[self::SYNC_FAILED][] = $this->formatKeycloakUser($keycloakUser) . ': could not create the HumHub user (' . $reason . ')';
                 continue;
             }
             $this->addAuth($user, $attributes['id']);
@@ -274,6 +293,14 @@ class KeycloakUserSource extends BaseUserSource
                 Yii::warning('Users sync: deactivated user ' . $user->username . ' (' . $user->id . '), not found on Keycloak', 'auth-keycloak');
                 $results[self::SYNC_DISABLED]++;
             }
+        }
+
+        foreach ($notSynced as $result => $lines) {
+            Yii::warning(
+                'Users sync: ' . count($lines) . ' Keycloak users ' . $result
+                . " (Keycloak ID, username, first name, last name: reason):\n" . implode("\n", $lines),
+                'auth-keycloak',
+            );
         }
 
         Yii::info('Users sync done: ' . VarDumper::dumpAsString($results), 'auth-keycloak');
@@ -313,15 +340,18 @@ class KeycloakUserSource extends BaseUserSource
     }
 
     /**
+     * @param string|null $reason set to the reason if the user is skipped or the sync failed
      * @return string sync result (SYNC_* constant)
      */
-    private function syncUser(User $user, array $attributes, bool $isEnabledOnKeycloak): string
+    private function syncUser(User $user, array $attributes, bool $isEnabledOnKeycloak, ?string &$reason = null): string
     {
         // Users owned by another source (e.g. local users who also sign in with Keycloak) are not managed
-        if (
-            $user->user_source !== $this->getId()
-            || $user->status === User::STATUS_SOFT_DELETED
-        ) {
+        if ($user->user_source !== $this->getId()) {
+            $reason = 'linked to the HumHub user ' . $user->username . ' (ID ' . $user->id . ') of the user source "' . $user->user_source . '"';
+            return self::SYNC_SKIPPED;
+        }
+        if ($user->status === User::STATUS_SOFT_DELETED) {
+            $reason = 'linked to the soft deleted HumHub user ' . $user->username . ' (ID ' . $user->id . ')';
             return self::SYNC_SKIPPED;
         }
 
@@ -329,22 +359,52 @@ class KeycloakUserSource extends BaseUserSource
         $managedValuesBefore = $this->getManagedValues($user);
         $isUpdated = $service->updateUser($attributes);
         if (!$isUpdated) {
+            $reason = 'could not update the HumHub user ' . $user->username . ' (ID ' . $user->id . '): '
+                . $this->formatErrors(array_merge($user->getErrors(), $user->profile?->getErrors() ?? []));
             // Discard the invalid values, so that the status can be saved
             $user->refresh();
         }
 
         // Even if the attributes could not be updated (e.g. email already used), the status must be synced
         if (!$isEnabledOnKeycloak && $user->status === User::STATUS_ENABLED) {
-            return $service->deleteUser() ? self::SYNC_DISABLED : self::SYNC_FAILED;
+            if ($service->deleteUser()) {
+                return self::SYNC_DISABLED;
+            }
+            $reason = 'could not deactivate the HumHub user ' . $user->username . ' (ID ' . $user->id . ')';
+            return self::SYNC_FAILED;
         }
         if ($isEnabledOnKeycloak && $user->status === User::STATUS_DEACTIVATED) {
-            return $this->enableUser($user) ? self::SYNC_ENABLED : self::SYNC_FAILED;
+            if ($this->enableUser($user)) {
+                return self::SYNC_ENABLED;
+            }
+            $reason = 'could not enable the HumHub user ' . $user->username . ' (ID ' . $user->id . ')';
+            return self::SYNC_FAILED;
         }
         if (!$isUpdated) {
             return self::SYNC_FAILED;
         }
 
         return $managedValuesBefore === $this->getManagedValues($user) ? self::SYNC_UNCHANGED : self::SYNC_UPDATED;
+    }
+
+    private function formatKeycloakUser(array $keycloakUser): string
+    {
+        return implode(' ', array_map(
+            static fn($name) => ($keycloakUser[$name] ?? '') !== '' ? $keycloakUser[$name] : '-',
+            ['id', 'username', 'firstName', 'lastName'],
+        ));
+    }
+
+    /**
+     * @param array $errors attribute => error messages (or model => attribute => error messages)
+     */
+    private function formatErrors(array $errors): string
+    {
+        $messages = [];
+        array_walk_recursive($errors, static function ($message) use (&$messages) {
+            $messages[] = $message;
+        });
+        return $messages !== [] ? implode(' ', array_unique($messages)) : 'unknown error';
     }
 
     private function getManagedValues(User $user): array

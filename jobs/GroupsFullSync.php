@@ -101,6 +101,11 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
             return;
         }
         $this->initHumhubGroupsByKeycloakId();
+        $this->initUsersKeycloakIdToHumhubId();
+        // Before adding the Keycloak groups to HumHub, as only groups having members are created
+        if (!$this->initKeycloakGroupsMembers()) {
+            return;
+        }
 
         if ($config->syncKeycloakGroupsToHumhub()) {
             $this->addKeycloakGroupsToHumhub();
@@ -112,12 +117,11 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
                 return;
             }
             $this->initHumhubGroupsByKeycloakId();
+            if (!$this->initKeycloakGroupsMembers()) {
+                return;
+            }
         }
 
-        $this->initUsersKeycloakIdToHumhubId();
-        if (!$this->initKeycloakGroupsMembers()) {
-            return;
-        }
         $this->initHumhubGroupsMembers();
 
         if ($config->syncKeycloakGroupsToHumhub()) {
@@ -201,6 +205,8 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
     /**
      * Links the Keycloak groups to the HumHub groups having the same name and the same parent, or creates them on HumHub.
      * Keycloak subgroups are HumHub subgroups of the HumHub group linked to their parent.
+     * Groups are created only if they (or one of their subgroups) have members with a HumHub account,
+     * hidden in the directory and not selectable at registration.
      * @return void
      */
     protected function addKeycloakGroupsToHumhub()
@@ -230,9 +236,14 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
                 ->where(['keycloak_id' => null, 'name' => $keycloakGroup['name'], 'parent_group_id' => $parentGroupId])
                 ->one();
             if ($groupKeycloak === null) {
+                if (!$this->hasKeycloakGroupMembers($keycloakGroupId)) {
+                    continue;
+                }
                 $groupKeycloak = new GroupKeycloak();
                 $groupKeycloak->name = $keycloakGroup['name'];
                 $groupKeycloak->parent_group_id = $parentGroupId;
+                $groupKeycloak->show_at_directory = 0;
+                $groupKeycloak->show_at_registration = 0;
             }
             $groupKeycloak->keycloak_id = $keycloakGroupId;
             if (!$groupKeycloak->save()) {
@@ -240,6 +251,23 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
             }
             $this->humhubGroupsByKeycloakId[$keycloakGroupId] = $groupKeycloak;
         }
+    }
+
+    /**
+     * @param string $keycloakGroupId
+     * @return bool whether the Keycloak group or one of its subgroups has members with a HumHub account
+     */
+    protected function hasKeycloakGroupMembers($keycloakGroupId)
+    {
+        if (!empty($this->keycloakGroupsMembers[$keycloakGroupId])) {
+            return true;
+        }
+        foreach ($this->keycloakGroups as $subgroupId => $keycloakGroup) {
+            if ($keycloakGroup['parentId'] === $keycloakGroupId && !empty($this->keycloakGroupsMembers[$subgroupId])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -279,11 +307,15 @@ class GroupsFullSync extends ActiveJob implements ExclusiveJobInterface, Retryab
     }
 
     /**
+     * Retrieves the members of the Keycloak groups not retrieved yet
      * @return bool false if the members of a group could not be retrieved
      */
     protected function initKeycloakGroupsMembers()
     {
         foreach ($this->keycloakGroups as $keycloakGroupId => $keycloakGroup) {
+            if (array_key_exists($keycloakGroupId, $this->keycloakGroupsMembers)) {
+                continue;
+            }
             $this->keycloakGroupsMembers[$keycloakGroupId] = [];
             $keycloakUserIds = $this->keycloakApi->getGroupMemberIds($keycloakGroupId);
             if ($keycloakUserIds === null) {

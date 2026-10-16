@@ -78,11 +78,18 @@ class UsersSyncTest extends KeycloakTestCase
     public function testUsersWithExistingEmailAreSkipped()
     {
         // The email of the fixture user "User1", owned by the local user source
-        KeycloakTestServer::createUser(['username' => 'kc.user1', 'email' => 'user1@example.com', 'firstName' => 'User', 'lastName' => 'One']);
+        $keycloakUserId = KeycloakTestServer::createUser(['username' => 'kc.user1', 'email' => 'user1@example.com', 'firstName' => 'User', 'lastName' => 'One']);
 
+        static::logInitialize();
         $results = $this->getUserSource()->syncUsers();
         $this->assertSame(0, $results[KeycloakUserSource::SYNC_CREATED]);
         $this->assertSame(1, $results[KeycloakUserSource::SYNC_SKIPPED]);
         $this->assertSame('local', User::findOne(['email' => 'user1@example.com'])->user_source);
+
+        // The skipped users are logged with the reason
+        static::assertLog(
+            "Users sync: 1 Keycloak users skipped (Keycloak ID, username, first name, last name: reason):\n"
+            . $keycloakUserId . ' kc.user1 User One: email user1@example.com already used by the HumHub user User1 (ID 2, user source "local")',
+        );
     }
 }

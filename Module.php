@@ -34,7 +34,7 @@ class Module extends BaseModule
      * (background jobs such as the users and groups sync, console commands), used instead of `apiTimeout`
      * as listing many users can take much longer (e.g. with LDAP user federation) (0 to wait indefinitely)
      */
-    public $apiSyncTimeout = 120;
+    public $apiSyncTimeout = 600;
 
     /**
      * @var int|float Maximum duration in seconds to connect to the Keycloak API (0 to wait indefinitely)

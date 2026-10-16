@@ -131,12 +131,13 @@ class KeycloakController extends Controller
         if ($humhubUser !== null && ($auth = $api->getUserAuth($humhubUser->id)) !== null) {
             $keycloakUser = $api->getUser($auth->source_id);
         }
-        if ($keycloakUser === null && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $user)) {
-            $keycloakUser = $api->getUser($user);
-        }
         $keycloakUser ??= $api->findUser($user);
+        // Not only UUIDs: the IDs of users of a user federation without import look like "f:<provider ID>:<user ID>"
+        $keycloakUser ??= $api->getUser($user);
         if ($keycloakUser === null) {
-            $this->stderr("Error: no Keycloak user found (or the API returned an error, see the error log).\n\n", Console::FG_RED);
+            $this->stderr('Error: no Keycloak user found with the ID, username or email "' . $user . '"'
+                . ($humhubUser !== null ? ' or linked to the HumHub user ' . $humhubUser->username . ' (ID ' . $humhubUser->id . ')' : '')
+                . ". API errors, if any, are in the error log.\n\n", Console::FG_RED);
             return ExitCode::UNSPECIFIED_ERROR;
         }
 

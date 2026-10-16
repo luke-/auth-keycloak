@@ -29,8 +29,10 @@ class GroupsSyncTest extends KeycloakTestCase
         $sales = KeycloakTestServer::createGroup('Sales');
         $north = KeycloakTestServer::createGroup('North', $sales);
         $deep = KeycloakTestServer::createGroup('Deep', $north);
-        KeycloakTestServer::createGroup('South', $sales);
+        $south = KeycloakTestServer::createGroup('South', $sales);
+        KeycloakTestServer::createGroup('Empty');
         KeycloakTestServer::addUserToGroup($user1KeycloakId, $north);
+        KeycloakTestServer::addUserToGroup($user1KeycloakId, $south);
         KeycloakTestServer::addUserToGroup($user2KeycloakId, $deep);
 
         (new GroupsFullSync(['firstSync' => true]))->run();
@@ -39,10 +41,14 @@ class GroupsSyncTest extends KeycloakTestCase
         $this->assertTrue($this->getHumhubGroup($north)->isMember($user1));
         // Groups deeper than the subgroups level are ignored
         $this->assertNull(GroupKeycloak::findOne(['name' => 'Deep']));
+        // Groups without members are not created
+        $this->assertNull(GroupKeycloak::findOne(['name' => 'Empty']));
+        // Created groups are hidden and not selectable at registration
+        $this->assertEquals(0, $this->getHumhubGroup($north)->show_at_directory);
+        $this->assertEquals(0, $this->getHumhubGroup($north)->show_at_registration);
 
         // Changes on Keycloak
-        $southId = KeycloakTestServer::request('GET', '/groups/' . $sales . '/children')[1]['id'];
-        KeycloakTestServer::request('POST', '/groups', ['id' => $southId, 'name' => 'South']);
+        KeycloakTestServer::request('POST', '/groups', ['id' => $south, 'name' => 'South']);
         KeycloakTestServer::request('DELETE', '/groups/' . $north);
         $east = KeycloakTestServer::createGroup('East', $sales);
         KeycloakTestServer::addUserToGroup($user2KeycloakId, $east);
@@ -100,8 +106,10 @@ class GroupsSyncTest extends KeycloakTestCase
     {
         $this->configureModule(['groupsSyncMode' => ConfigureForm::GROUP_SYNC_MODE_KC_TO_HH]);
         [$user1, $user1KeycloakId] = $this->createLinkedUser('User1');
+        [, $user2KeycloakId] = $this->createLinkedUser('User2');
         $sales = KeycloakTestServer::createGroup('Sales');
         $north = KeycloakTestServer::createGroup('North', $sales);
+        KeycloakTestServer::addUserToGroup($user2KeycloakId, $north);
         (new GroupsFullSync(['firstSync' => true]))->run();
 
         KeycloakTestServer::addUserToGroup($user1KeycloakId, $north);

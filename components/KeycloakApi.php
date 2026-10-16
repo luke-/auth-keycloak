@@ -670,7 +670,7 @@ class KeycloakApi extends Component
 
     /**
      * @param string $keycloakUserId
-     * @return array|null Keycloak user representation, null if not found or an error occurred
+     * @return array|null Keycloak user representation, null if not found or an error occurred (logged)
      */
     public function getUser(string $keycloakUserId): ?array
     {
@@ -680,6 +680,9 @@ class KeycloakApi extends Component
         try {
             $result = $this->api->getUser(['id' => $keycloakUserId]);
         } catch (CommandClientException|CommandException $e) {
+            if ($e->getResponse()?->getStatusCode() === 404) {
+                return null;
+            }
             Yii::error('Error retrieving user from Keycloak (ID: ' . $keycloakUserId . '): ' . $e->getMessage(), 'auth-keycloak');
             return null;
         }

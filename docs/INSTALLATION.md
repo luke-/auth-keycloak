@@ -137,8 +137,8 @@ return [
             'apiVerifySsl' => true,
             // Maximum duration in seconds of a request to the Keycloak API (default: 10, 0 to wait indefinitely)
             'apiTimeout' => 10,
-            // Same, for requests from the console: background jobs such as the users sync, and console commands (default: 120, 0 to wait indefinitely)
-            'apiSyncTimeout' => 120,
+            // Same, for requests from the console: background jobs such as the users sync, and console commands (default: 600, 0 to wait indefinitely)
+            'apiSyncTimeout' => 600,
             // Maximum duration in seconds to connect to the Keycloak API (default: 5, 0 to wait indefinitely)
             'apiConnectTimeout' => 5,
             // Register the Keycloak user source (default: true, required for the users sync)
