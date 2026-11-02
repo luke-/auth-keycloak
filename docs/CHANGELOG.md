@@ -3,6 +3,7 @@ Changelog
 
 1.7.0 (Unreleased)
 ------------------
+- Enh: Only the Keycloak auth client updates the Keycloak-managed attributes on sign in; other allowed auth clients only authenticate (HumHub 1.19.4+, humhub/humhub#8673)
 - Enh: Add an option to synchronize the users with Keycloak (`syncUsers`): every hour, HumHub accounts are created for new Keycloak users (without admin approval), updated (first name, last name and, depending on the settings, username and email), and deactivated if disabled or removed on Keycloak; also available as the console command `php yii auth-keycloak/sync-users` (and `auth-keycloak/list-users`)
 - Enh: Add an option for a read-only Keycloak API user (`apiReadOnly`): settings requiring write access to Keycloak are disabled
 - Enh: Add an option to access the Keycloak API with the service account of the client (`apiAuthMethod`, "client_credentials" grant) instead of an admin user, so that "Direct access grants" can stay disabled on the client

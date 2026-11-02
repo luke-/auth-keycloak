@@ -20,6 +20,7 @@ use humhub\modules\user\services\UserSourceService;
 use humhub\modules\user\source\BaseUserSource;
 use humhub\modules\user\source\UserSourceInterface;
 use Yii;
+use yii\authclient\ClientInterface;
 use yii\helpers\VarDumper;
 
 /**
@@ -87,6 +88,18 @@ class KeycloakUserSource extends BaseUserSource
     public function getTitle(): string
     {
         return $this->title !== '' ? $this->title : 'Keycloak';
+    }
+
+    /**
+     * Only the Keycloak auth client writes the managed attributes on sign in;
+     * other allowed auth clients (e.g. password) only authenticate. The users
+     * sync calls {@see UserSourceService::updateUser()} directly.
+     *
+     * Consulted since HumHub 1.19.4.
+     */
+    public function isAttributeSyncAllowed(ClientInterface $authClient): bool
+    {
+        return $authClient instanceof Keycloak;
     }
 
     /**
